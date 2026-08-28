@@ -1,0 +1,11 @@
+**
+
+!Tovarika/
+!Tovarika/build.gradle
+!Tovarika/settings.gradle
+!Tovarika/src/
+!Tovarika/src/**
+
+!tovarika-api-contract/
+!tovarika-api-contract/dist/
+!tovarika-api-contract/dist/**

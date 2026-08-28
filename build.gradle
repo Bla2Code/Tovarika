@@ -1,0 +1,220 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.8'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.tovarika'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+configurations {
+	openApiGenerator
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-liquibase'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'io.minio:minio:9.0.3'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
+
+	runtimeOnly 'org.postgresql:postgresql'
+	developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-liquibase-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-postgresql'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+	openApiGenerator 'org.openapitools:openapi-generator-cli:7.25.0'
+}
+
+def apiContractDirectory = providers.gradleProperty('apiContractDir')
+	.orElse(providers.environmentVariable('TOVARIKA_API_CONTRACT_DIR'))
+	.orElse(layout.projectDirectory.dir('../tovarika-api-contract').asFile.absolutePath)
+	.map { file(it) }
+def publicApiSpec = apiContractDirectory.map { new File(it, 'dist/openapi.yaml') }
+def providerApiSpec = apiContractDirectory.map { new File(it, 'dist/provider-openapi.yaml') }
+def generatedApiDirectory = layout.buildDirectory.dir('generated/openapi')
+def generatedResourcesDirectory = layout.buildDirectory.dir('generated-resources')
+def generatedContractResources = generatedResourcesDirectory.map { it.dir('static/openapi') }
+def backendContractDirectory = layout.buildDirectory.dir('generated-contract/openapi')
+def backendPublicApiSpec = backendContractDirectory.map { it.file('openapi.yaml').asFile }
+def backendProviderApiSpec = backendContractDirectory.map { it.file('provider-openapi.yaml').asFile }
+
+tasks.register('installApiContractDependencies', Exec) {
+	group = 'openapi tools'
+	description = 'Installs the API contract toolchain from its npm lock file.'
+	workingDir apiContractDirectory
+	commandLine 'npm', 'ci'
+	inputs.files(
+			apiContractDirectory.map { new File(it, 'package.json') },
+			apiContractDirectory.map { new File(it, 'package-lock.json') }
+	)
+	outputs.file(apiContractDirectory.map { new File(it, 'node_modules/.package-lock.json') })
+
+	doFirst {
+		if (!apiContractDirectory.get().isDirectory()) {
+			throw new GradleException("API contract directory does not exist: ${apiContractDirectory.get()}. " +
+				"Set -PapiContractDir=/path/to/tovarika-api-contract or TOVARIKA_API_CONTRACT_DIR.")
+		}
+	}
+}
+
+tasks.register('buildApiContract', Exec) {
+	group = 'openapi tools'
+	description = 'Validates and bundles the API contract from the sibling repository.'
+	dependsOn tasks.named('installApiContractDependencies')
+	workingDir apiContractDirectory
+	commandLine 'npm', 'run', 'build'
+
+	inputs.files(apiContractDirectory.map { contractDir ->
+		fileTree(contractDir) {
+			include 'openapi/**'
+			include 'examples/**'
+			include 'scripts/**'
+			include 'package.json'
+			include 'package-lock.json'
+			include 'redocly.yaml'
+			include 'orval.config.ts'
+		}
+	})
+	outputs.files(publicApiSpec, providerApiSpec)
+
+	doFirst {
+		if (!apiContractDirectory.get().isDirectory()) {
+			throw new GradleException("API contract directory does not exist: ${apiContractDirectory.get()}. " +
+				"Set -PapiContractDir=/path/to/tovarika-api-contract or TOVARIKA_API_CONTRACT_DIR.")
+		}
+	}
+}
+
+tasks.register('prepareBackendApiSpecs') {
+	group = 'openapi tools'
+	description = 'Normalizes OpenAPI 3.1 const keywords unsupported by Java codegen templates.'
+	inputs.files(publicApiSpec, providerApiSpec)
+	outputs.files(backendPublicApiSpec, backendProviderApiSpec)
+
+	doLast {
+		if (!publicApiSpec.get().isFile() || !providerApiSpec.get().isFile()) {
+			throw new GradleException("Bundled OpenAPI files were not found in ${new File(apiContractDirectory.get(), 'dist')}. " +
+				"Run ./gradlew buildApiContract first.")
+		}
+		backendContractDirectory.get().asFile.mkdirs()
+		[
+				(publicApiSpec.get()): backendPublicApiSpec.get(),
+				(providerApiSpec.get()): backendProviderApiSpec.get()
+		].each { input, output ->
+			output.setText(
+					input.getText('UTF-8').replaceAll(/(?m)^\s+const:.*\R/, ''),
+					'UTF-8'
+			)
+		}
+	}
+}
+
+def configureSpringApiGeneration = { JavaExec task, Provider<File> spec, String outputName,
+		String apiPackageName, String modelPackageName ->
+	task.dependsOn tasks.named('prepareBackendApiSpecs')
+	task.group = 'openapi tools'
+	task.classpath = configurations.openApiGenerator
+	task.mainClass.set('org.openapitools.codegen.OpenAPIGenerator')
+
+	def output = generatedApiDirectory.map { it.dir(outputName).asFile }
+	def configOptions = [
+		interfaceOnly                       : 'true',
+		skipDefaultInterface                : 'true',
+		useTags                             : 'true',
+		useSpringBoot4                      : 'true',
+		useJackson3                         : 'true',
+		useSpringBuiltInValidation          : 'true',
+		openApiNullable                     : 'false',
+		annotationLibrary                   : 'swagger2',
+		documentationProvider               : 'springdoc',
+		requestMappingMode                  : 'api_interface',
+		useRequestMappingOnInterface        : 'true',
+		useResponseEntity                   : 'true',
+		generatedConstructorWithRequiredArgs: 'true',
+		generateJsonIncludeAnnotations      : 'false',
+		generateJsonSetterNullsAnnotations  : 'false',
+		dateLibrary                         : 'java8'
+	]
+
+	task.inputs.file(spec)
+	task.outputs.dir(output)
+	task.doFirst {
+		delete(output.get())
+		task.args(
+				'generate',
+				'--generator-name', 'spring',
+				'--input-spec', spec.get().absolutePath,
+				'--output', output.get().absolutePath,
+				'--api-package', apiPackageName,
+				'--model-package', modelPackageName,
+				'--invoker-package', apiPackageName,
+				'--model-name-suffix', 'Dto',
+				'--additional-properties', configOptions.collect { key, value -> "$key=$value" }.join(','),
+				'--global-property', 'apis,models'
+		)
+	}
+}
+
+tasks.register('generatePublicApi', JavaExec) { task ->
+	configureSpringApiGeneration(
+		task,
+		backendPublicApiSpec,
+		'public',
+		'com.tovarika.api.publicapi',
+		'com.tovarika.api.publicapi.model'
+	)
+}
+
+tasks.register('generateProviderApi', JavaExec) { task ->
+	configureSpringApiGeneration(
+		task,
+		backendProviderApiSpec,
+		'provider',
+		'com.tovarika.api.provider',
+		'com.tovarika.api.provider.model'
+	)
+}
+
+tasks.register('copyApiContract', Copy) {
+	from publicApiSpec
+	into generatedContractResources
+	rename { 'tovarika-openapi.yaml' }
+}
+
+sourceSets {
+	main {
+		java.srcDir generatedApiDirectory.map { it.dir('public/src/main/java') }
+		java.srcDir generatedApiDirectory.map { it.dir('provider/src/main/java') }
+		resources.srcDir generatedResourcesDirectory
+	}
+}
+
+tasks.named('compileJava') {
+	dependsOn tasks.named('generatePublicApi'), tasks.named('generateProviderApi')
+}
+
+tasks.named('processResources') {
+	dependsOn tasks.named('copyApiContract')
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}

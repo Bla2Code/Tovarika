@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 000-bootstrap
+      author: tovarika
+      comment: Initial database checkpoint. Domain tables are added by subsequent changesets.
+      changes:
+        - tagDatabase:
+            tag: 0.1.0
