@@ -1,0 +1,192 @@
+{
+  "project": {
+    "name": "Tovarika",
+    "artifact": "tovarika",
+    "type": "backend",
+    "description": "Backend-сервис платформы для создания и редактирования карточек товаров для маркетплейсов.",
+    "status": "Начальный инфраструктурный каркас: настроены сборка, API-контракт, PostgreSQL, Liquibase, MinIO и развертывание; прикладные сценарии и контроллеры ещё не реализованы."
+  },
+  "technology": {
+    "language": "Java 21",
+    "framework": "Spring Boot 4.0.8",
+    "build": "Gradle Wrapper 9.7.1",
+    "database": "PostgreSQL 18",
+    "migrations": "Liquibase",
+    "objectStorage": "MinIO (S3 API)",
+    "api": "OpenAPI 3.1, Spring MVC, springdoc/Swagger UI",
+    "apiCodegen": "OpenAPI Generator 7.25.0",
+    "containers": "Docker и Docker Compose"
+  },
+  "architecture": {
+    "style": "Модульный монолит с contract-first REST API",
+    "basePackage": "com.tovarika.tech",
+    "dependencyDirection": "API -> application -> domain; infrastructure реализует порты application/domain и не определяет бизнес-правила.",
+    "targetModules": [
+      "auth",
+      "users",
+      "trial",
+      "billing",
+      "products",
+      "analyses",
+      "projects",
+      "templates",
+      "cards",
+      "assets",
+      "jobs",
+      "exports"
+    ],
+    "implementedModules": [
+      {
+        "name": "application",
+        "path": "src/main/java/com/tovarika/tech/TechApplication.java",
+        "responsibility": "Точка запуска Spring Boot."
+      },
+      {
+        "name": "storage",
+        "path": "src/main/java/com/tovarika/tech/infrastructure/storage",
+        "responsibility": "Конфигурация MinIO, создание бакета и хранение изображений пользователей."
+      },
+      {
+        "name": "database",
+        "path": "src/main/resources/db/changelog",
+        "responsibility": "Версионирование схемы PostgreSQL через Liquibase; сейчас содержит только начальную контрольную миграцию."
+      }
+    ]
+  },
+  "projectMap": [
+    {
+      "path": "src/main/java/com/tovarika/tech",
+      "purpose": "Ручной production-код приложения."
+    },
+    {
+      "path": "src/main/resources/application.properties",
+      "purpose": "Настройки приложения и значения окружения по умолчанию для локальной разработки."
+    },
+    {
+      "path": "src/main/resources/db/changelog",
+      "purpose": "Master-файл и changeset-файлы Liquibase."
+    },
+    {
+      "path": "build/generated/openapi",
+      "purpose": "Генерируемые API-интерфейсы и DTO; каталог не редактируется и не коммитится."
+    },
+    {
+      "path": "build/generated-resources/static/openapi/tovarika-openapi.yaml",
+      "purpose": "Копия публичного OpenAPI-контракта, доступная приложению и Swagger UI."
+    },
+    {
+      "path": "build.gradle",
+      "purpose": "Зависимости, сборка API-контракта и генерация Java-кода."
+    },
+    {
+      "path": "compose.yaml",
+      "purpose": "Локальные PostgreSQL и MinIO; приложение запускается только с профилем full."
+    },
+    {
+      "path": "Dockerfile",
+      "purpose": "Многоэтапная сборка production JAR и runtime-образа."
+    },
+    {
+      "path": "deploy/docker-compose.prod.yml",
+      "purpose": "Production-стек приложения, PostgreSQL и MinIO."
+    },
+    {
+      "path": ".github/workflows/deploy.yml",
+      "purpose": "Сборка Docker-образа и развертывание ветки develop по SSH."
+    },
+    {
+      "path": ".agent/rules",
+      "purpose": "Карта проекта и правила разработки для команды и агентов."
+    }
+  ],
+  "apiContract": {
+    "sourceRepository": "../tovarika-api-contract",
+    "publicSpec": "../tovarika-api-contract/dist/openapi.yaml",
+    "providerSpec": "../tovarika-api-contract/dist/provider-openapi.yaml",
+    "generatedPackages": [
+      "com.tovarika.api.publicapi",
+      "com.tovarika.api.provider"
+    ],
+    "publicAreas": [
+      "Authentication",
+      "Users",
+      "Trial",
+      "Billing",
+      "Products",
+      "Analyses",
+      "Projects",
+      "Templates",
+      "Cards",
+      "Assets",
+      "Jobs",
+      "Exports"
+    ],
+    "providerAreas": [
+      "YooKassaWebhooks"
+    ],
+    "sourceOfTruth": "API меняется в репозитории контракта; сгенерированные Java-файлы вручную не изменяются."
+  },
+  "runtime": {
+    "services": [
+      {
+        "name": "app",
+        "port": 8080,
+        "localProfile": "full"
+      },
+      {
+        "name": "postgres",
+        "port": 5432
+      },
+      {
+        "name": "minio",
+        "ports": [
+          9000,
+          9001
+        ]
+      }
+    ],
+    "localUrls": {
+      "swagger": "http://localhost:8080/swagger-ui.html",
+      "minioApi": "http://localhost:9000",
+      "minioConsole": "http://localhost:9001"
+    }
+  },
+  "configuration": {
+    "environmentVariables": [
+      "APP_PORT",
+      "DB_URL",
+      "DB_USERNAME",
+      "DB_PASSWORD",
+      "POSTGRES_DB",
+      "POSTGRES_USER",
+      "POSTGRES_PASSWORD",
+      "POSTGRES_PORT",
+      "MINIO_ENDPOINT",
+      "MINIO_ACCESS_KEY",
+      "MINIO_SECRET_KEY",
+      "MINIO_BUCKET",
+      "MINIO_INITIALIZE_BUCKET",
+      "MINIO_PORT",
+      "MINIO_CONSOLE_PORT",
+      "MAX_IMAGE_SIZE",
+      "TOVARIKA_API_CONTRACT_DIR"
+    ],
+    "rule": "Значения по умолчанию предназначены только для локальной разработки; production-секреты передаются через окружение и не хранятся в Git."
+  },
+  "commands": {
+    "prepareContract": "(cd ../tovarika-api-contract && npm ci && npm run build)",
+    "runLocally": "./gradlew bootRun",
+    "runFullStack": "docker compose --profile full up --build --wait",
+    "runInfrastructure": "docker compose up --wait",
+    "generateApi": "./gradlew generatePublicApi generateProviderApi",
+    "compileWithoutTests": "./gradlew classes",
+    "buildJarWithoutTests": "./gradlew bootJar -x test"
+  },
+  "importantConstraints": [
+    "Для сборки рядом должен находиться репозиторий tovarika-api-contract с подготовленным каталогом dist.",
+    "Сервис app в локальном Compose относится к профилю full; обычный docker compose up запускает только PostgreSQL и MinIO.",
+    "Схема базы данных изменяется только новыми changeset-файлами Liquibase.",
+    "Изображения хранятся в MinIO, а в PostgreSQL должны храниться только их метаданные и object key.",
+    "Новые автоматические тесты пока не разрабатываются; изменения проверяются сборкой без запуска тестов."
+  ]
+}

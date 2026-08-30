@@ -1,0 +1,83 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: tovarika-backend
+  DEPLOY_DIR: /home/deploy/tovarika-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout backend
+        uses: actions/checkout@v4
+        with:
+          path: Tovarika
+
+      - name: Checkout API contract
+        uses: actions/checkout@v4
+        with:
+          repository: Bla2Code/tovarika-api-contract
+          path: tovarika-api-contract
+          token: ${{ secrets.CONTRACT_REPO_TOKEN || github.token }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
+          cache: npm
+          cache-dependency-path: tovarika-api-contract/package-lock.json
+
+      - name: Build API contract
+        working-directory: tovarika-api-contract
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build image
+        run: |
+          docker build -f Tovarika/Dockerfile -t "$IMAGE_NAME:latest" -t "$IMAGE_NAME:${{ github.sha }}" .
+          docker save "$IMAGE_NAME:latest" | gzip > "/tmp/${IMAGE_NAME}.tar.gz"
+
+      - name: Load SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Trust server host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy deploy files
+        run: |
+          ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" "mkdir -p $DEPLOY_DIR"
+          scp "/tmp/${IMAGE_NAME}.tar.gz" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:$DEPLOY_DIR/${IMAGE_NAME}.tar.gz"
+          scp "Tovarika/deploy/docker-compose.prod.yml" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:$DEPLOY_DIR/docker-compose.prod.yml"
+
+      - name: Load image and restart stack
+        run: |
+          ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
+          set -e
+          cd /home/deploy/tovarika-backend
+          gunzip -c tovarika-backend.tar.gz | docker load
+          if ! docker network inspect tovarika-edge >/dev/null 2>&1; then
+            docker network create tovarika-edge >/dev/null 2>&1 || docker network inspect tovarika-edge >/dev/null 2>&1
+          fi
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          rm -f tovarika-backend.tar.gz
+          docker image prune -f
+          EOF
