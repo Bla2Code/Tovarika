@@ -14,6 +14,14 @@
 
 ## Запуск
 
+Authentication требует 256-битный signing key без значения по умолчанию в репозитории. Для локального
+запуска создайте временный ключ в окружении (после перезапуска ранее выданные access token станут
+недействительными):
+
+```bash
+export JWT_SECRET_BASE64="$(openssl rand -base64 32)"
+```
+
 Запускайте приложение локально, а PostgreSQL и MinIO будут управляться средствами Docker
 Compose в Spring Boot:
 
@@ -57,6 +65,31 @@ docker compose --profile full down
 Учётные данные по умолчанию для разработки: `tovarika` / `tovarika-secret` для MinIO и
 `tovarika` / `tovarika` для PostgreSQL. Вне локальной разработки их следует переопределять
 через переменные окружения, указанные в `compose.yaml` и `application.properties`.
+
+## Authentication и security
+
+Authentication реализован по `docs/authentication/ai-contract.yaml` соседнего contract-репозитория:
+
+- access token — HS256 JWT с TTL 10 минут и claims `sub`, `sid`, `iss`, `aud`, `iat`, `exp`, `jti`;
+- refresh token — opaque 256-bit value только в `Secure; HttpOnly; SameSite` cookie, в PostgreSQL
+  хранится только SHA-256 hash;
+- каждый refresh атомарно consume-ит предыдущий token под PostgreSQL row lock и создаёт следующий;
+  reuse отзывает всю token family;
+- refresh family ограничена 30 днями absolute и 14 днями inactivity;
+- email password хранится только в `AuthIdentity` через Argon2id; common/breached passwords
+  проверяются через k-anonymity API;
+- cookie-authenticated mutations требуют allowlisted `Origin`; credentialed CORS не использует `*`;
+- Yandex ID использует Authorization Code, PKCE S256, state и server-side correlation attempt.
+
+Resource Server валидирует active user/session централизованно через PostgreSQL на каждом Bearer request.
+Это осознанный trade-off: JWT transport остаётся stateless и не использует `HttpSession`, но блокировка user
+или revoke session действует сразу, а не только после истечения 10-минутного access token. Кэширование этой
+проверки не включено, чтобы не ослаблять revoke semantics.
+
+Production обязательно задаёт стабильные `JWT_SECRET_BASE64`, `UI_ALLOWED_ORIGINS`, SMTP и Yandex OAuth
+параметры. Локальный HTTP допускает `AUTH_COOKIE_SECURE=false`, но тогда одновременно используйте cookie
+names без префикса `__Host-`, как уже настроено в `compose.yaml`. Signing key, SMTP/Yandex secrets и токены
+не должны попадать в Git или logs.
 
 ## Развертывание
 
@@ -106,5 +139,7 @@ Spring API-интерфейсы и DTO в `build/generated/openapi`. Сгене�
 ./gradlew test
 ```
 
-Интеграционный тест запускает PostgreSQL 18 через Testcontainers и проверяет, что начальный
-changeset Liquibase был применён к реальной базе данных.
+Authentication contract suite запускает PostgreSQL 18 через Testcontainers и проверяет Liquibase/JPA,
+rotation/reuse/concurrency, one-time reset/verification tokens, JWT validators, Origin/CORS, Yandex
+state/PKCE/safe redirects и exactly-once trial conversion. H2 для security concurrency semantics не
+используется.

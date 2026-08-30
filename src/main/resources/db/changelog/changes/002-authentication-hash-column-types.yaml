@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-authentication-hash-column-types
+      author: tovarika
+      comment: Align fixed-length hexadecimal hashes with Hibernate String schema validation.
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE refresh_tokens ALTER COLUMN token_hash TYPE varchar(64);
+              ALTER TABLE email_verification_tokens ALTER COLUMN token_hash TYPE varchar(64);
+              ALTER TABLE password_reset_tokens ALTER COLUMN token_hash TYPE varchar(64);
+              ALTER TABLE oauth_attempts ALTER COLUMN state_hash TYPE varchar(64);
+              ALTER TABLE oauth_attempts ALTER COLUMN correlation_hash TYPE varchar(64);
+              ALTER TABLE trial_sessions ALTER COLUMN token_hash TYPE varchar(64);
+              ALTER TABLE authentication_rate_limits ALTER COLUMN subject_hash TYPE varchar(64);

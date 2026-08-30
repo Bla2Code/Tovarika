@@ -12,7 +12,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @Testcontainers
-@SpringBootTest(properties = "tovarika.storage.minio.initialize-bucket=false")
+@SpringBootTest(properties = {
+		"spring.docker.compose.enabled=false",
+		"tovarika.storage.minio.initialize-bucket=false",
+		"tovarika.security.jwt.secret-base64=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		"tovarika.security.password.breached-check-enabled=false"
+})
 final class TechApplicationTests {
 
 	@Container

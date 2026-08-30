@@ -10,6 +10,7 @@
 
 - Java 21, Spring Boot 4 и Gradle Wrapper;
 - Spring MVC, Validation и Spring Data JPA;
+- Spring Security OAuth2 Resource Server, short-lived JWT access tokens и Backend-managed opaque refresh sessions;
 - PostgreSQL и Liquibase;
 - MinIO как S3-совместимое хранилище изображений;
 - OpenAPI Generator и springdoc/Swagger UI;
@@ -80,7 +81,7 @@
 
 ## 9. Тесты и проверка изменений
 
-Новые автоматические тесты пока не пишем и существующую тестовую инфраструктуру не расширяем до отдельного решения команды. Существующие тесты не удаляй и не переписывай без прямой задачи.
+Новые тесты для уже реализованных security invariants и regression-critical сценариев пишутся на существующем стеке JUnit/Testcontainers. Для PostgreSQL locking/concurrency semantics H2 не использовать. В остальных модулях тестовую инфраструктуру не расширяй до отдельного решения команды без прямой задачи. Существующие тесты не удаляй и не переписывай без прямой задачи.
 
 Минимальная проверка изменений без запуска тестов:
 
