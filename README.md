@@ -70,6 +70,7 @@ docker compose --profile full down
 
 Authentication реализован по `docs/authentication/ai-contract.yaml` соседнего contract-репозитория:
 
+- регистрация по email сразу создаёт активный аккаунт; если browser уже несёт trial cookie, она привязывается при регистрации;
 - access token — HS256 JWT с TTL 10 минут и claims `sub`, `sid`, `iss`, `aud`, `iat`, `exp`, `jti`;
 - refresh token — opaque 256-bit value только в `Secure; HttpOnly; SameSite` cookie, в PostgreSQL
   хранится только SHA-256 hash;
@@ -140,6 +141,6 @@ Spring API-интерфейсы и DTO в `build/generated/openapi`. Сгене�
 ```
 
 Authentication contract suite запускает PostgreSQL 18 через Testcontainers и проверяет Liquibase/JPA,
-rotation/reuse/concurrency, one-time reset/verification tokens, JWT validators, Origin/CORS, Yandex
+rotation/reuse/concurrency, one-time reset tokens, JWT validators, Origin/CORS, Yandex
 state/PKCE/safe redirects и exactly-once trial conversion. H2 для security concurrency semantics не
 используется.

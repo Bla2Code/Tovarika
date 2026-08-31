@@ -73,19 +73,6 @@ class RefreshTokenEntity {
 }
 
 @Entity
-@Table(name = "email_verification_tokens")
-class EmailVerificationTokenEntity {
-    @Id String id;
-    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "user_id") UserEntity user;
-    @Column(name = "token_hash", nullable = false, unique = true, length = 64) String tokenHash;
-    @Column(name = "created_at", nullable = false) Instant createdAt;
-    @Column(name = "expires_at", nullable = false) Instant expiresAt;
-    @Column(name = "consumed_at") Instant consumedAt;
-
-    protected EmailVerificationTokenEntity() {}
-}
-
-@Entity
 @Table(name = "password_reset_tokens")
 class PasswordResetTokenEntity {
     @Id String id;

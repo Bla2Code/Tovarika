@@ -25,17 +25,6 @@ public class SmtpAuthenticationMessageSender implements AuthenticationMessageSen
     }
 
     @Override
-    public void sendEmailVerification(String email, String rawToken) {
-        URI link = UriComponentsBuilder.fromUri(properties.mail().uiBaseUri())
-                .path("/auth/verify-email")
-                .queryParam("token", rawToken)
-                .build()
-                .encode()
-                .toUri();
-        send(email, "Confirm your Tovarika email", "Open this link to confirm your email: " + link);
-    }
-
-    @Override
     public void sendPasswordReset(String email, String rawToken) {
         URI link = UriComponentsBuilder.fromUri(properties.mail().uiBaseUri())
                 .path("/auth/reset-password")

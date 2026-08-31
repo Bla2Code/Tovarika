@@ -9,7 +9,6 @@ public interface AuthenticationRateLimiter {
     enum Scope {
         LOGIN,
         REGISTER,
-        VERIFICATION,
         PASSWORD_RESET,
         OAUTH_START,
         OAUTH_CALLBACK,

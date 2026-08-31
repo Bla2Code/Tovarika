@@ -125,8 +125,7 @@ class AuthenticationContractIntegrationTest {
     void setUp() {
         jdbc.execute("""
                 TRUNCATE TABLE authentication_rate_limits, oauth_attempts, password_reset_tokens,
-                    email_verification_tokens, refresh_tokens, auth_sessions, auth_identities,
-                    trial_sessions, users CASCADE
+                    refresh_tokens, auth_sessions, auth_identities, trial_sessions, users CASCADE
                 """);
         messages.clear();
         yandexClient.reset();
@@ -136,6 +135,20 @@ class AuthenticationContractIntegrationTest {
     @AfterEach
     void resetProvider() {
         yandexClient.reset();
+    }
+
+    @Test
+    void register_returns_active_user() throws Exception {
+        String body = """
+                {"email":"register-active@example.com","password":"%s","displayName":"Admin"}
+                """.formatted(PASSWORD);
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.user.emailVerified").value(true))
+                .andExpect(jsonPath("$.user.status").value("active"));
     }
 
     @Test
@@ -233,29 +246,18 @@ class AuthenticationContractIntegrationTest {
     }
 
     @Test
-    void enumeration_safe_email_commands() throws Exception {
-        emailAuthentication.register("known@example.com", PASSWORD, null);
-        String knownVerification = "{\"email\":\"known@example.com\"}";
-        String unknownVerification = "{\"email\":\"unknown@example.com\"}";
-
-        mockMvc.perform(post("/api/v1/auth/email-verification-requests")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(knownVerification))
-                .andExpect(status().isAccepted())
-                .andExpect(result -> assertThat(result.getResponse().getContentAsString()).isEmpty());
-        mockMvc.perform(post("/api/v1/auth/email-verification-requests")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(unknownVerification))
-                .andExpect(status().isAccepted())
-                .andExpect(result -> assertThat(result.getResponse().getContentAsString()).isEmpty());
+    void enumeration_safe_password_reset_requests() throws Exception {
+        emailAuthentication.register("known@example.com", PASSWORD, null, null);
+        String knownEmail = "{\"email\":\"known@example.com\"}";
+        String unknownEmail = "{\"email\":\"unknown@example.com\"}";
 
         mockMvc.perform(post("/api/v1/auth/password-reset-requests")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(knownVerification))
+                        .content(knownEmail))
                 .andExpect(status().isAccepted());
         mockMvc.perform(post("/api/v1/auth/password-reset-requests")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(unknownVerification))
+                        .content(unknownEmail))
                 .andExpect(status().isAccepted());
     }
 
@@ -530,10 +532,8 @@ class AuthenticationContractIntegrationTest {
                 opaqueTokens.hash(rawTrial),
                 Timestamp.from(now),
                 Timestamp.from(now.plusSeconds(3600)));
-        emailAuthentication.register("trial@example.com", PASSWORD, null);
-
-        SessionGrant grant = emailAuthentication.confirmVerification(
-                messages.verificationToken("trial@example.com"), rawTrial, METADATA);
+        emailAuthentication.register("trial@example.com", PASSWORD, null, rawTrial);
+        SessionGrant grant = emailAuthentication.login("trial@example.com", PASSWORD, METADATA);
 
         assertThat(jdbc.queryForObject(
                         "SELECT owner_user_id FROM trial_sessions WHERE id = 'trial_testvalue'", String.class))
@@ -547,8 +547,8 @@ class AuthenticationContractIntegrationTest {
     }
 
     private SessionGrant activeAccount(String email) {
-        emailAuthentication.register(email, PASSWORD, "Test User");
-        return emailAuthentication.confirmVerification(messages.verificationToken(email), null, METADATA);
+        emailAuthentication.register(email, PASSWORD, "Test User", null);
+        return emailAuthentication.login(email, PASSWORD, METADATA);
     }
 
     private AuthenticationSession session(String id) {
@@ -612,21 +612,11 @@ class AuthenticationContractIntegrationTest {
     }
 
     static final class CapturingMessageSender implements AuthenticationMessageSender {
-        private final Map<String, String> verification = new ConcurrentHashMap<>();
         private final Map<String, String> resets = new ConcurrentHashMap<>();
-
-        @Override
-        public void sendEmailVerification(String email, String rawToken) {
-            verification.put(email, rawToken);
-        }
 
         @Override
         public void sendPasswordReset(String email, String rawToken) {
             resets.put(email, rawToken);
-        }
-
-        String verificationToken(String email) {
-            return verification.get(email);
         }
 
         String resetToken(String email) {
@@ -634,7 +624,6 @@ class AuthenticationContractIntegrationTest {
         }
 
         void clear() {
-            verification.clear();
             resets.clear();
         }
     }

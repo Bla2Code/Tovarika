@@ -49,7 +49,7 @@ public class EmailAuthenticationService {
     }
 
     @Transactional
-    public UserView register(String email, String password, String displayName) {
+    public UserView register(String email, String password, String displayName, String rawTrialToken) {
         String normalizedEmail = EmailNormalizer.normalize(email);
         passwordPolicy.validate(password);
         if (store.findEmailCredentials(normalizedEmail).isPresent()) {
@@ -59,10 +59,10 @@ public class EmailAuthenticationService {
         UserAccount user = new UserAccount(
                 AuthenticationIds.userId(),
                 normalizedEmail,
-                false,
+                true,
                 normalizeDisplayName(displayName),
                 null,
-                UserStatus.PENDING_EMAIL_VERIFICATION,
+                UserStatus.ACTIVE,
                 now,
                 now);
         AuthIdentity identity = new AuthIdentity(
@@ -78,7 +78,9 @@ public class EmailAuthenticationService {
         } catch (DataIntegrityViolationException conflict) {
             throw AuthException.conflict(AuthErrorCode.EMAIL_ALREADY_REGISTERED, "Email is already registered");
         }
-        issueVerification(user);
+        if (rawTrialToken != null && !rawTrialToken.isBlank()) {
+            store.convertTrial(opaqueTokens.hash(rawTrialToken), user.id(), now);
+        }
         return new UserView(user, java.util.Set.of(AuthProvider.EMAIL));
     }
 
@@ -93,40 +95,10 @@ public class EmailAuthenticationService {
         if (!passwordHasher.matches(password, credentials.identity().passwordHash())) {
             throw invalidCredentials();
         }
-        if (credentials.user().status() == UserStatus.PENDING_EMAIL_VERIFICATION) {
-            throw AuthException.forbidden(AuthErrorCode.EMAIL_NOT_VERIFIED, "Email verification is required");
-        }
         if (!credentials.user().isActive()) {
             throw invalidCredentials();
         }
         return sessions.create(credentials.user(), metadata);
-    }
-
-    @Transactional
-    public void requestVerification(String email) {
-        store.findEmailCredentials(EmailNormalizer.normalize(email))
-                .filter(credentials -> credentials.user().status() == UserStatus.PENDING_EMAIL_VERIFICATION)
-                .ifPresent(credentials -> issueVerification(credentials.user()));
-    }
-
-    @Transactional
-    public SessionGrant confirmVerification(String rawToken, String rawTrialToken, RequestMetadata metadata) {
-        Instant now = clock.instant();
-        OneTimeToken token = store.lockVerificationToken(opaqueTokens.hash(rawToken))
-                .orElseThrow(() -> AuthException.unauthorized(
-                        AuthErrorCode.VERIFICATION_TOKEN_INVALID, "Verification token is invalid"));
-        if (!token.isUsableAt(now) || !store.consumeVerificationToken(token.id(), now)) {
-            throw AuthException.unauthorized(
-                    AuthErrorCode.VERIFICATION_TOKEN_INVALID, "Verification token is invalid");
-        }
-        if (!store.activatePendingUser(token.userId(), now)) {
-            throw AuthException.conflict(AuthErrorCode.VERIFICATION_TOKEN_INVALID, "User cannot be activated");
-        }
-        if (rawTrialToken != null && !rawTrialToken.isBlank()) {
-            store.convertTrial(opaqueTokens.hash(rawTrialToken), token.userId(), now);
-        }
-        UserAccount activeUser = store.findUserById(token.userId()).orElseThrow();
-        return sessions.create(activeUser, metadata);
     }
 
     @Transactional
@@ -176,21 +148,6 @@ public class EmailAuthenticationService {
         store.updatePassword(credentials.identity().id(), passwordHasher.hash(newPassword), now);
         store.revokeAllUserSessionsExcept(userId, accessSessionId, now);
         return grant;
-    }
-
-    private void issueVerification(UserAccount user) {
-        Instant now = clock.instant();
-        String rawToken = opaqueTokens.generate();
-        store.revokeVerificationTokens(user.id(), now);
-        store.createVerificationToken(new OneTimeToken(
-                AuthenticationIds.tokenId(),
-                user.id(),
-                null,
-                opaqueTokens.hash(rawToken),
-                now,
-                now.plus(properties.token().emailVerificationTtl()),
-                null));
-        messageSender.sendEmailVerification(user.email(), rawToken);
     }
 
     private void issuePasswordReset(EmailCredentials credentials) {

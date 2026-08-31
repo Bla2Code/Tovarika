@@ -77,20 +77,6 @@ interface RefreshTokenJpaRepository extends JpaRepository<RefreshTokenEntity, St
             @Param("now") Instant now);
 }
 
-interface EmailVerificationTokenJpaRepository extends JpaRepository<EmailVerificationTokenEntity, String> {
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select t from EmailVerificationTokenEntity t join fetch t.user where t.tokenHash = :tokenHash")
-    Optional<EmailVerificationTokenEntity> lockByHash(@Param("tokenHash") String tokenHash);
-
-    @Modifying
-    @Query("update EmailVerificationTokenEntity t set t.consumedAt = :now where t.user.id = :userId and t.consumedAt is null")
-    int revokeActive(@Param("userId") String userId, @Param("now") Instant now);
-
-    @Modifying
-    @Query("update EmailVerificationTokenEntity t set t.consumedAt = :now where t.id = :tokenId and t.consumedAt is null")
-    int consume(@Param("tokenId") String tokenId, @Param("now") Instant now);
-}
-
 interface PasswordResetTokenJpaRepository extends JpaRepository<PasswordResetTokenEntity, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from PasswordResetTokenEntity t join fetch t.identity join fetch t.user where t.tokenHash = :tokenHash")

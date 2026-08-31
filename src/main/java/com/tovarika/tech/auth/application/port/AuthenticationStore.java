@@ -28,19 +28,9 @@ public interface AuthenticationStore {
 
     void createIdentity(AuthIdentity identity);
 
-    boolean activatePendingUser(String userId, Instant now);
-
     void updateUserProfile(String userId, String displayName, Instant now);
 
     void updatePassword(String identityId, String passwordHash, Instant now);
-
-    void revokeVerificationTokens(String userId, Instant now);
-
-    void createVerificationToken(OneTimeToken token);
-
-    Optional<OneTimeToken> lockVerificationToken(String tokenHash);
-
-    boolean consumeVerificationToken(String tokenId, Instant now);
 
     void revokePasswordResetTokens(String identityId, Instant now);
 

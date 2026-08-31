@@ -10,7 +10,6 @@ import com.tovarika.tech.auth.domain.OneTimeToken;
 import com.tovarika.tech.auth.domain.RefreshContext;
 import com.tovarika.tech.auth.domain.RefreshCredential;
 import com.tovarika.tech.auth.domain.UserAccount;
-import com.tovarika.tech.auth.domain.UserStatus;
 import java.net.URI;
 import java.time.Instant;
 import java.util.LinkedHashSet;
@@ -26,7 +25,6 @@ public class JpaAuthenticationStore implements AuthenticationStore {
     private final AuthIdentityJpaRepository identities;
     private final AuthSessionJpaRepository sessions;
     private final RefreshTokenJpaRepository refreshTokens;
-    private final EmailVerificationTokenJpaRepository verificationTokens;
     private final PasswordResetTokenJpaRepository resetTokens;
     private final OAuthAttemptJpaRepository oauthAttempts;
     private final TrialSessionJpaRepository trialSessions;
@@ -36,7 +34,6 @@ public class JpaAuthenticationStore implements AuthenticationStore {
             AuthIdentityJpaRepository identities,
             AuthSessionJpaRepository sessions,
             RefreshTokenJpaRepository refreshTokens,
-            EmailVerificationTokenJpaRepository verificationTokens,
             PasswordResetTokenJpaRepository resetTokens,
             OAuthAttemptJpaRepository oauthAttempts,
             TrialSessionJpaRepository trialSessions) {
@@ -44,7 +41,6 @@ public class JpaAuthenticationStore implements AuthenticationStore {
         this.identities = identities;
         this.sessions = sessions;
         this.refreshTokens = refreshTokens;
-        this.verificationTokens = verificationTokens;
         this.resetTokens = resetTokens;
         this.oauthAttempts = oauthAttempts;
         this.trialSessions = trialSessions;
@@ -84,18 +80,6 @@ public class JpaAuthenticationStore implements AuthenticationStore {
     }
 
     @Override
-    public boolean activatePendingUser(String userId, Instant now) {
-        UserEntity user = users.findById(userId).orElse(null);
-        if (user == null || user.status != UserStatus.PENDING_EMAIL_VERIFICATION) {
-            return false;
-        }
-        user.status = UserStatus.ACTIVE;
-        user.emailVerified = true;
-        user.updatedAt = now;
-        return true;
-    }
-
-    @Override
     public void updateUserProfile(String userId, String displayName, Instant now) {
         UserEntity user = users.getReferenceById(userId);
         user.displayName = displayName;
@@ -107,34 +91,6 @@ public class JpaAuthenticationStore implements AuthenticationStore {
         AuthIdentityEntity identity = identities.getReferenceById(identityId);
         identity.passwordHash = passwordHash;
         identity.updatedAt = now;
-    }
-
-    @Override
-    public void revokeVerificationTokens(String userId, Instant now) {
-        verificationTokens.revokeActive(userId, now);
-    }
-
-    @Override
-    public void createVerificationToken(OneTimeToken token) {
-        EmailVerificationTokenEntity entity = new EmailVerificationTokenEntity();
-        entity.id = token.id();
-        entity.user = users.getReferenceById(token.userId());
-        entity.tokenHash = token.tokenHash();
-        entity.createdAt = token.createdAt();
-        entity.expiresAt = token.expiresAt();
-        entity.consumedAt = token.consumedAt();
-        verificationTokens.save(entity);
-    }
-
-    @Override
-    public Optional<OneTimeToken> lockVerificationToken(String tokenHash) {
-        return verificationTokens.lockByHash(tokenHash).map(entity -> new OneTimeToken(
-                entity.id, entity.user.id, null, entity.tokenHash, entity.createdAt, entity.expiresAt, entity.consumedAt));
-    }
-
-    @Override
-    public boolean consumeVerificationToken(String tokenId, Instant now) {
-        return verificationTokens.consume(tokenId, now) == 1;
     }
 
     @Override

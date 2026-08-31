@@ -21,7 +21,7 @@ public record AuthenticationProperties(
 
     public record Refresh(Duration absoluteTtl, Duration inactivityTtl) {}
 
-    public record Token(Duration emailVerificationTtl, Duration passwordResetTtl) {}
+    public record Token(Duration passwordResetTtl) {}
 
     public record Cookie(
             String refreshName,
@@ -52,7 +52,6 @@ public record AuthenticationProperties(
     public record RateLimit(
             Rule login,
             Rule register,
-            Rule verification,
             Rule passwordReset,
             Rule oauthStart,
             Rule oauthCallback,

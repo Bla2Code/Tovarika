@@ -11,7 +11,6 @@ import com.tovarika.api.publicapi.model.OAuthAuthorizationDto;
 import com.tovarika.api.publicapi.model.RegisterRequestDto;
 import com.tovarika.api.publicapi.model.RegistrationResultDto;
 import com.tovarika.api.publicapi.model.StartOAuthRequestDto;
-import com.tovarika.api.publicapi.model.TokenConfirmationRequestDto;
 import com.tovarika.tech.auth.application.AuthenticationProperties;
 import com.tovarika.tech.auth.application.EmailAuthenticationService;
 import com.tovarika.tech.auth.application.EmailNormalizer;
@@ -68,8 +67,12 @@ public class AuthenticationController implements AuthenticationApi {
                 Scope.REGISTER,
                 requestContext.rateLimitSubject(EmailNormalizer.normalize(request.getEmail())),
                 properties.rateLimit().register());
-        var user = emailAuthentication.register(request.getEmail(), request.getPassword(), request.getDisplayName());
-        return ResponseEntity.status(201).body(new RegistrationResultDto(mapper.user(user), true));
+        var user = emailAuthentication.register(
+                request.getEmail(),
+                request.getPassword(),
+                request.getDisplayName(),
+                requestContext.cookie(cookies.trialCookieName()));
+        return ResponseEntity.status(201).body(new RegistrationResultDto(mapper.user(user)));
     }
 
     @Override
@@ -104,32 +107,6 @@ public class AuthenticationController implements AuthenticationApi {
         return ResponseEntity.noContent()
                 .header(HttpHeaders.SET_COOKIE, cookies.clearRefresh().toString())
                 .build();
-    }
-
-    @Override
-    public ResponseEntity<Void> requestEmailVerification(EmailCommandRequestDto request) {
-        rateLimiter.check(
-                Scope.VERIFICATION,
-                requestContext.rateLimitSubject(EmailNormalizer.normalize(request.getEmail())),
-                properties.rateLimit().verification());
-        emailAuthentication.requestVerification(request.getEmail());
-        return ResponseEntity.accepted().build();
-    }
-
-    @Override
-    public ResponseEntity<AccessTokenDto> confirmEmailVerification(TokenConfirmationRequestDto request) {
-        rateLimiter.check(
-                Scope.VERIFICATION,
-                requestContext.rateLimitSubject("confirmation"),
-                properties.rateLimit().verification());
-        SessionGrant grant = emailAuthentication.confirmVerification(
-                request.getToken(),
-                requestContext.cookie(cookies.trialCookieName()),
-                requestContext.metadata());
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookies.createRefresh(grant.rawRefreshToken()).toString())
-                .header(HttpHeaders.SET_COOKIE, cookies.clearTrial().toString())
-                .body(mapper.accessToken(grant));
     }
 
     @Override

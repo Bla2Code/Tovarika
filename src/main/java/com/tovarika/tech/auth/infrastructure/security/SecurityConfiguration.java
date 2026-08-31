@@ -79,8 +79,6 @@ public class SecurityConfiguration {
                         "/api/v1/auth/login",
                         "/api/v1/auth/refresh",
                         "/api/v1/auth/logout",
-                        "/api/v1/auth/email-verification-requests",
-                        "/api/v1/auth/email-verification-confirmations",
                         "/api/v1/auth/password-reset-requests",
                         "/api/v1/auth/password-reset-confirmations",
                         "/api/v1/auth/oauth/yandex/authorizations",
