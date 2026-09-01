@@ -13,21 +13,21 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-tovarika-secret}
       MINIO_BUCKET: ${MINIO_BUCKET:-user-images}
       JWT_SECRET_BASE64: ${JWT_SECRET_BASE64:-}
-      JWT_ISSUER: ${JWT_ISSUER:-https://api.tovarika.ru}
+      JWT_ISSUER: ${JWT_ISSUER:-https://api.tovarika.com}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-tovarika-ui}
-      UI_ALLOWED_ORIGINS: ${UI_ALLOWED_ORIGINS:-https://tovarika.ru}
+      UI_ALLOWED_ORIGINS: ${UI_ALLOWED_ORIGINS:-https://tovarika.com}
       AUTH_COOKIE_SECURE: "true"
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
-      YANDEX_REDIRECT_URI: ${YANDEX_REDIRECT_URI:-https://api.tovarika.ru/api/v1/auth/oauth/yandex/callback}
+      YANDEX_REDIRECT_URI: ${YANDEX_REDIRECT_URI:-https://api.tovarika.com/api/v1/auth/oauth/yandex/callback}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_AUTH: ${SMTP_AUTH:-true}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
-      AUTH_MAIL_FROM: ${AUTH_MAIL_FROM:-no-reply@tovarika.ru}
-      AUTH_UI_BASE_URI: ${AUTH_UI_BASE_URI:-https://tovarika.ru}
+      AUTH_MAIL_FROM: ${AUTH_MAIL_FROM:-no-reply@tovarika.com}
+      AUTH_UI_BASE_URI: ${AUTH_UI_BASE_URI:-https://tovarika.com}
     expose:
       - "8080"
     networks:
