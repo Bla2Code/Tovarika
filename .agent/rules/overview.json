@@ -4,7 +4,7 @@
     "artifact": "tovarika",
     "type": "backend",
     "description": "Backend-сервис платформы для создания и редактирования карточек товаров для маркетплейсов.",
-    "status": "Начальный инфраструктурный каркас: настроены сборка, API-контракт, PostgreSQL, Liquibase, MinIO и развертывание; прикладные сценарии и контроллеры ещё не реализованы."
+    "status": "Инфраструктурный каркас и Authentication v1 реализованы: Spring Security, email auth, rotating refresh sessions, Yandex OAuth, PostgreSQL/Liquibase, MinIO и развертывание. Остальные продуктовые модули остаются каркасом."
   },
   "technology": {
     "language": "Java 21",
@@ -13,7 +13,7 @@
     "database": "PostgreSQL 18",
     "migrations": "Liquibase",
     "objectStorage": "MinIO (S3 API)",
-    "api": "OpenAPI 3.1, Spring MVC, springdoc/Swagger UI",
+    "api": "OpenAPI 3.1, Spring MVC, Spring Security OAuth2 Resource Server, springdoc/Swagger UI",
     "apiCodegen": "OpenAPI Generator 7.25.0",
     "containers": "Docker и Docker Compose"
   },
@@ -37,6 +37,11 @@
     ],
     "implementedModules": [
       {
+        "name": "auth",
+        "path": "src/main/java/com/tovarika/tech/auth",
+        "responsibility": "Email registration/verification/login/reset/change-password, JWT Resource Server, opaque rotating refresh families, session management, DB-backed rate limits, Origin/CORS policy и Yandex OAuth PKCE."
+      },
+      {
         "name": "application",
         "path": "src/main/java/com/tovarika/tech/TechApplication.java",
         "responsibility": "Точка запуска Spring Boot."
@@ -49,7 +54,7 @@
       {
         "name": "database",
         "path": "src/main/resources/db/changelog",
-        "responsibility": "Версионирование схемы PostgreSQL через Liquibase; сейчас содержит только начальную контрольную миграцию."
+        "responsibility": "Версионирование схемы PostgreSQL через Liquibase, включая users, auth identities, sessions/token history, one-time tokens, OAuth attempts, trial ownership и rate limits."
       }
     ]
   },
@@ -97,6 +102,14 @@
     {
       "path": ".agent/rules",
       "purpose": "Карта проекта и правила разработки для команды и агентов."
+    },
+    {
+      "path": ".agent/rules/SECURITY.md",
+      "purpose": "Обязательные правила расширения реализованного Authentication/Spring Security и написания security acceptance-тестов."
+    },
+    {
+      "path": "src/test/java/com/tovarika/tech/auth/AuthenticationContractIntegrationTest.java",
+      "purpose": "PostgreSQL/Testcontainers acceptance suite и executable пример тестирования Security через настоящий Spring Security pipeline."
     }
   ],
   "apiContract": {
@@ -124,7 +137,25 @@
     "providerAreas": [
       "YooKassaWebhooks"
     ],
-    "sourceOfTruth": "API меняется в репозитории контракта; сгенерированные Java-файлы вручную не изменяются."
+    "sourceOfTruth": "API меняется в репозитории контракта; сгенерированные Java-файлы вручную не изменяются.",
+    "authenticationContract": "../tovarika-api-contract/docs/authentication/ai-contract.yaml"
+  },
+  "security": {
+    "rules": ".agent/rules/SECURITY.md",
+    "configuration": "src/main/java/com/tovarika/tech/auth/infrastructure/security/SecurityConfiguration.java",
+    "requestPrincipal": "src/main/java/com/tovarika/tech/auth/api/RequestAuthenticationContext.java",
+    "applicationServices": [
+      "src/main/java/com/tovarika/tech/auth/application/EmailAuthenticationService.java",
+      "src/main/java/com/tovarika/tech/auth/application/SessionService.java",
+      "src/main/java/com/tovarika/tech/auth/application/YandexOAuthService.java",
+      "src/main/java/com/tovarika/tech/auth/application/UserAccountService.java"
+    ],
+    "persistencePort": "src/main/java/com/tovarika/tech/auth/application/port/AuthenticationStore.java",
+    "jwtRuntimeValidation": "src/main/java/com/tovarika/tech/auth/infrastructure/security/SessionUserJwtValidator.java",
+    "originValidation": "src/main/java/com/tovarika/tech/auth/infrastructure/security/AllowedOriginFilter.java",
+    "testSuite": "src/test/java/com/tovarika/tech/auth/AuthenticationContractIntegrationTest.java",
+    "extensionRule": "Protected controllers derive sub/sid through RequestAuthenticationContext and pass explicit IDs into application services; services do not read servlet/SecurityContext state and do not access auth JPA repositories directly.",
+    "testRule": "Security acceptance tests use the real Resource Server and PostgreSQL 18 Testcontainers; @WithMockUser, mocked JwtDecoder/SecurityFilterChain/AuthenticationStore and H2 cannot validate authentication, rotation, reuse, revoke or concurrency semantics."
   },
   "runtime": {
     "services": [
@@ -169,7 +200,29 @@
       "MINIO_PORT",
       "MINIO_CONSOLE_PORT",
       "MAX_IMAGE_SIZE",
-      "TOVARIKA_API_CONTRACT_DIR"
+      "TOVARIKA_API_CONTRACT_DIR",
+      "JWT_SECRET_BASE64",
+      "JWT_ISSUER",
+      "JWT_AUDIENCE",
+      "UI_ALLOWED_ORIGINS",
+      "AUTH_COOKIE_SECURE",
+      "AUTH_COOKIE_SAME_SITE",
+      "REFRESH_COOKIE_NAME",
+      "OAUTH_COOKIE_NAME",
+      "TRIAL_COOKIE_NAME",
+      "BREACHED_PASSWORD_CHECK_ENABLED",
+      "PWNED_PASSWORD_API_URL",
+      "YANDEX_CLIENT_ID",
+      "YANDEX_CLIENT_SECRET",
+      "YANDEX_REDIRECT_URI",
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_USERNAME",
+      "SMTP_PASSWORD",
+      "SMTP_AUTH",
+      "SMTP_STARTTLS",
+      "AUTH_MAIL_FROM",
+      "AUTH_UI_BASE_URI"
     ],
     "rule": "Значения по умолчанию предназначены только для локальной разработки; production-секреты передаются через окружение и не хранятся в Git."
   },
@@ -180,13 +233,17 @@
     "runInfrastructure": "docker compose up --wait",
     "generateApi": "./gradlew generatePublicApi generateProviderApi",
     "compileWithoutTests": "./gradlew classes",
-    "buildJarWithoutTests": "./gradlew bootJar -x test"
+    "buildJarWithoutTests": "./gradlew bootJar -x test",
+    "testAuthentication": "./gradlew test --tests com.tovarika.tech.auth.AuthenticationContractIntegrationTest",
+    "test": "./gradlew test"
   },
   "importantConstraints": [
     "Для сборки рядом должен находиться репозиторий tovarika-api-contract с подготовленным каталогом dist.",
     "Сервис app в локальном Compose относится к профилю full; обычный docker compose up запускает только PostgreSQL и MinIO.",
     "Схема базы данных изменяется только новыми changeset-файлами Liquibase.",
     "Изображения хранятся в MinIO, а в PostgreSQL должны храниться только их метаданные и object key.",
-    "Новые автоматические тесты пока не разрабатываются; изменения проверяются сборкой без запуска тестов."
+    "Перед изменением authentication, authorization, cookies, CORS/CSRF, OAuth, sessions или protected endpoint обязательно применяется .agent/rules/SECURITY.md.",
+    "Authentication security semantics проверяются на PostgreSQL 18 через Testcontainers; H2 для locking/concurrency не используется.",
+    "JWT_SECRET_BASE64 не имеет значения по умолчанию и должен быть стабильным production secret длиной не менее 256 бит."
   ]
 }
