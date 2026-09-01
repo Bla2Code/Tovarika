@@ -108,7 +108,7 @@ Workflow извлекает этот репозиторий в `Tovarika/`, ря
 - `DEPLOY_HOST` - адрес сервера;
 - `DEPLOY_USER` - SSH-пользователь;
 - `DEPLOY_SSH_KEY` - приватный SSH-ключ для сервера;
-- `CONTRACT_REPO_TOKEN` - необязательный токен, если `tovarika-api-contract` приватный.
+- `CONTRACTS_REPO_TOKEN` - необязательный токен, если `tovarika-api-contract` приватный.
 
 Локально бэкенд доступен на порту `8080`. В production он не публикует host-port:
 UI Caddy обслуживает фронтенд и проксирует `/api/v1/*` в backend по общей сети

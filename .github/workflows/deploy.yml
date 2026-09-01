@@ -32,7 +32,7 @@ jobs:
         with:
           repository: Bla2Code/tovarika-api-contract
           path: tovarika-api-contract
-          token: ${{ secrets.CONTRACT_REPO_TOKEN || github.token }}
+          token: ${{ secrets.CONTRACTS_REPO_TOKEN || github.token }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
