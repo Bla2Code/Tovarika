@@ -90,7 +90,8 @@ Resource Server валидирует active user/session централизов�
 Production обязательно задаёт стабильные `JWT_SECRET_BASE64`, `UI_ALLOWED_ORIGINS`, SMTP и Yandex OAuth
 параметры. Локальный HTTP допускает `AUTH_COOKIE_SECURE=false`, но тогда одновременно используйте cookie
 names без префикса `__Host-`, как уже настроено в `compose.yaml`. Signing key, SMTP/Yandex secrets и токены
-не должны попадать в Git или logs.
+не должны попадать в Git или logs. Для деплоя `JWT_SECRET_BASE64` хранится в GitHub Secret и workflow
+записывает его в `/home/deploy/tovarika-backend/.env` перед `docker compose up`.
 
 ## Развертывание
 
@@ -99,7 +100,7 @@ names без префикса `__Host-`, как уже настроено в `co
 
 Workflow извлекает этот репозиторий в `Tovarika/`, рядом извлекает
 `Bla2Code/tovarika-api-contract`, сначала собирает API-контракт, затем собирает
-`tovarika-backend:latest`, загружает tarball с образом и Compose-файл в
+`tovarika-backend:latest`, загружает tarball с образом, Compose-файл и `.env` в
 `/home/deploy/tovarika-backend`, создаёт общую сеть `tovarika-edge` при необходимости и
 перезапускает стек через Docker Compose.
 
@@ -108,7 +109,8 @@ Workflow извлекает этот репозиторий в `Tovarika/`, ря
 - `DEPLOY_HOST` - адрес сервера;
 - `DEPLOY_USER` - SSH-пользователь;
 - `DEPLOY_SSH_KEY` - приватный SSH-ключ для сервера;
-- `CONTRACTS_REPO_TOKEN` - необязательный токен, если `tovarika-api-contract` приватный.
+- `CONTRACTS_REPO_TOKEN` - необязательный токен, если `tovarika-api-contract` приватный;
+- `JWT_SECRET_BASE64` - обязательный 256-битный signing key для production deploy.
 
 Локально бэкенд доступен на порту `8080`. В production он не публикует host-port:
 UI Caddy обслуживает фронтенд и проксирует `/api/v1/*` в backend по общей сети

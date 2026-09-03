@@ -12,7 +12,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-tovarika}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-tovarika-secret}
       MINIO_BUCKET: ${MINIO_BUCKET:-user-images}
-      JWT_SECRET_BASE64: ${JWT_SECRET_BASE64:-}
+      JWT_SECRET_BASE64: ${JWT_SECRET_BASE64:?JWT_SECRET_BASE64 is required for production}
       JWT_ISSUER: ${JWT_ISSUER:-https://api.tovarika.com}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-tovarika-ui}
       UI_ALLOWED_ORIGINS: ${UI_ALLOWED_ORIGINS:-https://tovarika.com}
