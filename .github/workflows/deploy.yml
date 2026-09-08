@@ -83,10 +83,10 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           : "${DEPLOY_USER:?GitHub secret DEPLOY_USER is required for deploy}"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p $DEPLOY_DIR"
-          scp -o BatchMode=yes -o StrictHostKeyChecking=yes "/tmp/${IMAGE_NAME}.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/${IMAGE_NAME}.tar.gz"
-          scp -o BatchMode=yes -o StrictHostKeyChecking=yes "Tovarika/deploy/docker-compose.prod.yml" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.prod.yml"
-          scp -o BatchMode=yes -o StrictHostKeyChecking=yes "/tmp/${IMAGE_NAME}.env" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/.env"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p $DEPLOY_DIR"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "/tmp/${IMAGE_NAME}.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/${IMAGE_NAME}.tar.gz"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "Tovarika/deploy/docker-compose.prod.yml" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.prod.yml"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "/tmp/${IMAGE_NAME}.env" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/.env"
           rm -f "/tmp/${IMAGE_NAME}.env"
 
       - name: Load image and restart stack
@@ -94,7 +94,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" <<'EOF'
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "$DEPLOY_USER@$DEPLOY_HOST" <<'EOF'
           set -e
           cd /home/deploy/tovarika-backend
           gunzip -c tovarika-backend.tar.gz | docker load
