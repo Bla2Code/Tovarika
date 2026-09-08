@@ -65,22 +65,36 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
-      - name: Trust server host key
+      - name: Configure SSH known_hosts
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          : "${DEPLOY_HOST:?GitHub secret DEPLOY_HOST is required for deploy}"
+          : "${DEPLOY_KNOWN_HOSTS:?GitHub secret DEPLOY_KNOWN_HOSTS is required for deploy}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -F "$DEPLOY_HOST" -f "$HOME/.ssh/known_hosts" >/dev/null
 
       - name: Copy deploy files
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" "mkdir -p $DEPLOY_DIR"
-          scp "/tmp/${IMAGE_NAME}.tar.gz" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:$DEPLOY_DIR/${IMAGE_NAME}.tar.gz"
-          scp "Tovarika/deploy/docker-compose.prod.yml" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:$DEPLOY_DIR/docker-compose.prod.yml"
-          scp "/tmp/${IMAGE_NAME}.env" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:$DEPLOY_DIR/.env"
+          : "${DEPLOY_USER:?GitHub secret DEPLOY_USER is required for deploy}"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p $DEPLOY_DIR"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes "/tmp/${IMAGE_NAME}.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/${IMAGE_NAME}.tar.gz"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes "Tovarika/deploy/docker-compose.prod.yml" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.prod.yml"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes "/tmp/${IMAGE_NAME}.env" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/.env"
           rm -f "/tmp/${IMAGE_NAME}.env"
 
       - name: Load image and restart stack
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" <<'EOF'
           set -e
           cd /home/deploy/tovarika-backend
           gunzip -c tovarika-backend.tar.gz | docker load
