@@ -83,6 +83,8 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           : "${DEPLOY_USER:?GitHub secret DEPLOY_USER is required for deploy}"
+          RUNNER_IP="$(curl -fsS --max-time 10 https://api.ipify.org || true)"
+          echo "GitHub runner public IP: ${RUNNER_IP:-unavailable}"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p $DEPLOY_DIR"
           scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "/tmp/${IMAGE_NAME}.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/${IMAGE_NAME}.tar.gz"
           scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "Tovarika/deploy/docker-compose.prod.yml" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.prod.yml"
