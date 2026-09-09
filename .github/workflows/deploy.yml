@@ -1,9 +1,8 @@
 name: Deploy
 
 on:
-  push:
-    branches:
-      - develop
+  # Temporarily disabled: no deploy on push.
+  # Re-enable by restoring the push trigger for develop.
   workflow_dispatch:
 
 permissions:
@@ -19,6 +18,8 @@ env:
 
 jobs:
   deploy:
+    # Temporarily disabled. Remove this line when GitHub deploy is needed again.
+    if: ${{ false }}
     runs-on: ubuntu-latest
 
     steps:
