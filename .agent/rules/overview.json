@@ -108,6 +108,10 @@
       "purpose": "Обязательные правила расширения реализованного Authentication/Spring Security и написания security acceptance-тестов."
     },
     {
+      "path": ".agent/rules/MIGRATIONS.md",
+      "purpose": "Обязательные правила неизменяемости опубликованных Liquibase changeSet и проверка новых миграций."
+    },
+    {
       "path": "src/test/java/com/tovarika/tech/auth/AuthenticationContractIntegrationTest.java",
       "purpose": "PostgreSQL/Testcontainers acceptance suite и executable пример тестирования Security через настоящий Spring Security pipeline."
     }

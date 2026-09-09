@@ -1,0 +1,32 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-project-previews
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE TABLE assets (
+                  id varchar(40) PRIMARY KEY,
+                  purpose varchar(20) NOT NULL,
+                  media_type varchar(255) NOT NULL,
+                  size_bytes integer NOT NULL,
+                  width integer,
+                  height integer,
+                  url varchar(2048) NOT NULL,
+                  expires_at timestamptz,
+                  created_at timestamptz NOT NULL,
+                  CONSTRAINT ck_assets_purpose CHECK (
+                      purpose IN ('source_image', 'card_image', 'region_mask', 'export_file')
+                  ),
+                  CONSTRAINT ck_assets_size CHECK (size_bytes > 0),
+                  CONSTRAINT ck_assets_dimensions CHECK (
+                      (width IS NULL OR width > 0) AND (height IS NULL OR height > 0)
+                  )
+              );
+
+              ALTER TABLE products
+                  ADD COLUMN source_asset_id varchar(40) REFERENCES assets(id);
+
+              ALTER TABLE projects
+                  ADD COLUMN preview_asset_id varchar(40) REFERENCES assets(id);
