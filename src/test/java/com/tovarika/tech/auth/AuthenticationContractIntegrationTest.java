@@ -86,6 +86,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "spring.docker.compose.enabled=false",
+            "tovarika.storage.minio.initialize-bucket=false",
             "tovarika.security.jwt.secret-base64=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "tovarika.security.password.breached-check-enabled=false",
             "tovarika.security.cookie.secure=true",

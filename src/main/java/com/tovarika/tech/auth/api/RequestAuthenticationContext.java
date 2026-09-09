@@ -27,6 +27,14 @@ public class RequestAuthenticationContext {
         return new Principal(token.getToken().getSubject(), token.getToken().getClaimAsString("sid"));
     }
 
+    public Principal optionalPrincipal() {
+        if (SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken token
+                && token.isAuthenticated()) {
+            return new Principal(token.getToken().getSubject(), token.getToken().getClaimAsString("sid"));
+        }
+        return null;
+    }
+
     public String cookie(String name) {
         Cookie[] cookies = request.getCookies();
         if (cookies == null) {
