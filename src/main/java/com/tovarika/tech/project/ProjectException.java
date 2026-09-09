@@ -39,4 +39,8 @@ public final class ProjectException extends RuntimeException {
     static ProjectException conflict() {
         return new ProjectException(ErrorCodeDto.IDEMPOTENCY_CONFLICT, 409, "A project already exists for this product");
     }
+
+    static ProjectException badRequest(String message) {
+        return new ProjectException(ErrorCodeDto.VALIDATION_ERROR, 400, message);
+    }
 }

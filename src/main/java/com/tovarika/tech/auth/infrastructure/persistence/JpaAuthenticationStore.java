@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Repository;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class JpaAuthenticationStore implements AuthenticationStore {
@@ -28,6 +30,7 @@ public class JpaAuthenticationStore implements AuthenticationStore {
     private final PasswordResetTokenJpaRepository resetTokens;
     private final OAuthAttemptJpaRepository oauthAttempts;
     private final TrialSessionJpaRepository trialSessions;
+    private final JdbcTemplate jdbc;
 
     public JpaAuthenticationStore(
             UserJpaRepository users,
@@ -36,7 +39,8 @@ public class JpaAuthenticationStore implements AuthenticationStore {
             RefreshTokenJpaRepository refreshTokens,
             PasswordResetTokenJpaRepository resetTokens,
             OAuthAttemptJpaRepository oauthAttempts,
-            TrialSessionJpaRepository trialSessions) {
+            TrialSessionJpaRepository trialSessions,
+            JdbcTemplate jdbc) {
         this.users = users;
         this.identities = identities;
         this.sessions = sessions;
@@ -44,6 +48,7 @@ public class JpaAuthenticationStore implements AuthenticationStore {
         this.resetTokens = resetTokens;
         this.oauthAttempts = oauthAttempts;
         this.trialSessions = trialSessions;
+        this.jdbc = jdbc;
     }
 
     @Override
@@ -216,6 +221,7 @@ public class JpaAuthenticationStore implements AuthenticationStore {
     }
 
     @Override
+    @Transactional
     public boolean convertTrial(String trialTokenHash, String userId, Instant now) {
         TrialSessionEntity trial = trialSessions.findByTokenHash(trialTokenHash).orElse(null);
         if (trial == null || trial.owner != null || !now.isBefore(trial.expiresAt)) {
@@ -223,6 +229,10 @@ public class JpaAuthenticationStore implements AuthenticationStore {
         }
         trial.owner = users.getReferenceById(userId);
         trial.convertedAt = now;
+        jdbc.update(
+                "update products set owner_user_id = ?, owner_trial_session_id = null where owner_trial_session_id = ?",
+                userId,
+                trial.id);
         return true;
     }
 

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.tovarika.tech.auth.api.AuthenticationCookieService;
 import com.tovarika.tech.auth.application.port.OpaqueTokenService;
+import com.tovarika.tech.auth.application.port.AuthenticationStore;
 import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -49,6 +50,7 @@ class ProjectsContractIntegrationTest {
 
     @Autowired JdbcTemplate jdbc;
     @Autowired OpaqueTokenService tokens;
+    @Autowired AuthenticationStore authenticationStore;
     @Autowired AuthenticationCookieService cookies;
     @Autowired WebApplicationContext applicationContext;
 
@@ -56,7 +58,7 @@ class ProjectsContractIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.execute("TRUNCATE TABLE projects, products, trial_sessions, users CASCADE");
+        jdbc.execute("TRUNCATE TABLE projects, products, assets, trial_sessions, users CASCADE");
         insertUser(USER, "owner@example.test");
         insertUser(OTHER_USER, "other@example.test");
         mockMvc = MockMvcBuilders.webAppContextSetup(applicationContext).apply(springSecurity()).build();
@@ -161,6 +163,102 @@ class ProjectsContractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
     }
 
+    @Test
+    void listsEmptyPageForRegisteredUser() throws Exception {
+        mockMvc.perform(get("/api/v1/projects")
+                        .param("limit", "9")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER).claim("sid", "ses_test"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.meta.limit").value(9))
+                .andExpect(jsonPath("$.meta.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void paginatesByUpdatedAtAndIdAndIsolatesUsers() throws Exception {
+        Instant base = Instant.parse("2026-09-09T10:00:00Z");
+        insertUserProject("prd_old", "prj_old", base);
+        insertUserProject("prd_tie_a", "prj_tiea", base.plusSeconds(10));
+        insertUserProject("prd_tie_b", "prj_tieb", base.plusSeconds(10));
+        insertUserProject("prd_new", "prj_new", base.plusSeconds(20));
+        insertUserProduct("prd_foreign", "Foreign", OTHER_USER);
+        insertProjectAt("prj_foreign", "prd_foreign", base.plusSeconds(30));
+
+        MvcResult firstPage = mockMvc.perform(get("/api/v1/projects")
+                        .param("limit", "2")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER).claim("sid", "ses_test"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].id").value("prj_new"))
+                .andExpect(jsonPath("$.items[1].id").value("prj_tieb"))
+                .andExpect(jsonPath("$.meta.nextCursor").isNotEmpty())
+                .andReturn();
+
+        String cursor = JsonTestValue.string(
+                firstPage.getResponse().getContentAsString(), "meta", "nextCursor");
+        mockMvc.perform(get("/api/v1/projects")
+                        .param("limit", "2")
+                        .param("cursor", cursor)
+                        .with(jwt().jwt(jwt -> jwt.subject(USER).claim("sid", "ses_test"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].id").value("prj_tiea"))
+                .andExpect(jsonPath("$.items[1].id").value("prj_old"))
+                .andExpect(jsonPath("$.meta.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void returnsPreviewInSameListResponse() throws Exception {
+        insertAsset("asset_source", "source_image");
+        insertProduct("prd_preview", "Preview product", USER, null, "asset_source");
+        insertProject("prj_preview", "prd_preview");
+
+        mockMvc.perform(get("/api/v1/projects")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER).claim("sid", "ses_test"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].previewImage.id").value("asset_source"))
+                .andExpect(jsonPath("$.items[0].previewImage.purpose").value("source_image"))
+                .andExpect(jsonPath("$.items[0].previewImage.url").value("https://cdn.test/asset_source"));
+    }
+
+    @Test
+    void rejectsInvalidCursorLimitAndTrialHistory() throws Exception {
+        var bearer = jwt().jwt(jwt -> jwt.subject(USER).claim("sid", "ses_test"));
+        mockMvc.perform(get("/api/v1/projects").param("cursor", "not-a-cursor").with(bearer))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        mockMvc.perform(get("/api/v1/projects")
+                        .param("limit", "101")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER).claim("sid", "ses_test"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        String rawToken = "trial-history-secret";
+        insertTrial("try_history", rawToken);
+        mockMvc.perform(get("/api/v1/projects")
+                        .cookie(new Cookie(cookies.trialCookieName(), rawToken)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void convertedTrialProjectAppearsInUserHistory() throws Exception {
+        String rawToken = "converted-trial-secret";
+        insertTrial("try_converted", rawToken);
+        insertTrialProduct("prd_converted", "Converted", "try_converted");
+        insertProject("prj_converted", "prd_converted");
+
+        org.assertj.core.api.Assertions.assertThat(
+                        authenticationStore.convertTrial(tokens.hash(rawToken), USER, Instant.now()))
+                .isTrue();
+
+        mockMvc.perform(get("/api/v1/projects")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER).claim("sid", "ses_test"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value("prj_converted"));
+    }
+
     private void insertUser(String id, String email) {
         Instant now = Instant.now();
         jdbc.update(
@@ -184,22 +282,55 @@ class ProjectsContractIntegrationTest {
     }
 
     private void insertProduct(String id, String name, String userId, String trialId) {
+        insertProduct(id, name, userId, trialId, null);
+    }
+
+    private void insertProduct(String id, String name, String userId, String trialId, String sourceAssetId) {
         Instant now = Instant.now();
         jdbc.update(
-                "insert into products (id, name, owner_user_id, owner_trial_session_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?)",
-                id, name, userId, trialId, Timestamp.from(now), Timestamp.from(now));
+                "insert into products (id, name, source_asset_id, owner_user_id, owner_trial_session_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?)",
+                id, name, sourceAssetId, userId, trialId, Timestamp.from(now), Timestamp.from(now));
     }
 
     private void insertProject(String id, String productId) {
-        Instant now = Instant.now();
+        insertProjectAt(id, productId, Instant.now());
+    }
+
+    private void insertProjectAt(String id, String productId, Instant updatedAt) {
         jdbc.update(
                 "insert into projects (id, product_id, name, default_aspect_ratio, created_at, updated_at) values (?, ?, 'Existing', '3:4', ?, ?)",
-                id, productId, Timestamp.from(now), Timestamp.from(now));
+                id, productId, Timestamp.from(updatedAt), Timestamp.from(updatedAt));
+    }
+
+    private void insertUserProject(String productId, String projectId, Instant updatedAt) {
+        insertUserProduct(productId, projectId, USER);
+        insertProjectAt(projectId, productId, updatedAt);
+    }
+
+    private void insertAsset(String id, String purpose) {
+        jdbc.update(
+                """
+                insert into assets
+                    (id, purpose, media_type, size_bytes, width, height, url, created_at)
+                values (?, ?, 'image/webp', 1024, 1200, 1600, ?, ?)
+                """,
+                id,
+                purpose,
+                "https://cdn.test/" + id,
+                Timestamp.from(Instant.now()));
     }
 
     private static final class JsonTestValue {
         static String string(String json, String field) throws Exception {
             return new com.fasterxml.jackson.databind.ObjectMapper().readTree(json).get(field).asText();
+        }
+
+        static String string(String json, String object, String field) throws Exception {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readTree(json)
+                    .get(object)
+                    .get(field)
+                    .asText();
         }
     }
 }

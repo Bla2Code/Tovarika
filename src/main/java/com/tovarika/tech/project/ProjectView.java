@@ -10,4 +10,5 @@ record ProjectView(
         String defaultAspectRatio,
         int cardCount,
         Instant createdAt,
-        Instant updatedAt) {}
+        Instant updatedAt,
+        ProjectAssetView previewImage) {}

@@ -54,4 +54,12 @@ class ProjectRequestOwnerResolver {
                         ErrorCodeDto.TRIAL_SESSION_NOT_FOUND, "Trial session not found"));
         return ProjectOwner.trial(trialId);
     }
+
+    String resolveRegisteredUser() {
+        RequestAuthenticationContext.Principal principal = request.optionalPrincipal();
+        if (principal == null) {
+            throw ProjectException.unauthorized(ErrorCodeDto.AUTHENTICATION_REQUIRED, "Authentication is required");
+        }
+        return principal.userId();
+    }
 }
