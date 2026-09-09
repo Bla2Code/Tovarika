@@ -4,6 +4,7 @@ import com.tovarika.api.publicapi.model.ApiErrorDto;
 import com.tovarika.api.publicapi.model.ErrorCodeDto;
 import com.tovarika.tech.auth.application.AuthException;
 import com.tovarika.tech.auth.infrastructure.security.RequestIdFilter;
+import com.tovarika.tech.project.ProjectException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -24,6 +25,12 @@ public class ApiExceptionHandler {
         ErrorCodeDto code = ErrorCodeDto.fromValue(exception.code().name());
         return ResponseEntity.status(exception.status())
                 .body(error(code, exception.getMessage(), request));
+    }
+
+    @ExceptionHandler(ProjectException.class)
+    ResponseEntity<ApiErrorDto> handleProject(ProjectException exception, HttpServletRequest request) {
+        return ResponseEntity.status(exception.status())
+                .body(error(exception.code(), exception.getMessage(), request));
     }
 
     @ExceptionHandler({

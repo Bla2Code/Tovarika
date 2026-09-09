@@ -1,0 +1,40 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-projects
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE TABLE products (
+                  id varchar(40) PRIMARY KEY,
+                  name varchar(200) NOT NULL,
+                  owner_user_id varchar(40) REFERENCES users(id),
+                  owner_trial_session_id varchar(40) REFERENCES trial_sessions(id),
+                  created_at timestamptz NOT NULL,
+                  updated_at timestamptz NOT NULL,
+                  CONSTRAINT ck_products_single_owner CHECK (
+                      (owner_user_id IS NOT NULL)::integer
+                      + (owner_trial_session_id IS NOT NULL)::integer = 1
+                  )
+              );
+
+              CREATE INDEX ix_products_owner_user ON products (owner_user_id)
+                  WHERE owner_user_id IS NOT NULL;
+              CREATE INDEX ix_products_owner_trial ON products (owner_trial_session_id)
+                  WHERE owner_trial_session_id IS NOT NULL;
+
+              CREATE TABLE projects (
+                  id varchar(40) PRIMARY KEY,
+                  product_id varchar(40) NOT NULL UNIQUE REFERENCES products(id),
+                  name varchar(200) NOT NULL,
+                  selected_template_id varchar(40),
+                  default_aspect_ratio varchar(8) NOT NULL,
+                  card_count integer NOT NULL DEFAULT 0,
+                  created_at timestamptz NOT NULL,
+                  updated_at timestamptz NOT NULL,
+                  CONSTRAINT ck_projects_aspect_ratio CHECK (
+                      default_aspect_ratio IN ('1:1', '3:4', '4:5', '16:9')
+                  ),
+                  CONSTRAINT ck_projects_card_count CHECK (card_count BETWEEN 0 AND 10)
+              );

@@ -7,3 +7,5 @@ databaseChangeLog:
       file: db/changelog/changes/002-authentication-hash-column-types.yaml
   - include:
       file: db/changelog/changes/003-remove-email-verification.yaml
+  - include:
+      file: db/changelog/changes/004-projects.yaml
