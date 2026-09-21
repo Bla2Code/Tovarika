@@ -127,6 +127,64 @@ class ProjectService {
         return new ProjectPageView(List.copyOf(items), limit, nextCursor);
     }
 
+    @Transactional
+    public ProjectView update(
+            String projectId, ProjectOwner owner, String name, String templateId, String aspectRatio) {
+        lockOwnedProject(projectId, owner);
+        if (name == null && templateId == null && aspectRatio == null) {
+            throw ProjectException.badRequest("At least one project setting is required");
+        }
+        if ((name != null && (name.isEmpty() || name.length() > 200))
+                || (templateId != null && !templateId.matches("^tpl_[A-Za-z0-9_]+$"))
+                || (aspectRatio != null && !List.of("1:1", "3:4", "4:5", "16:9").contains(aspectRatio))) {
+            throw ProjectException.badRequest("Project settings are invalid");
+        }
+        requireIdle(projectId);
+        if (templateId != null && jdbc.query(
+                        "select id from templates where id = ? and available = true for share",
+                        (result, row) -> result.getString("id"), templateId).isEmpty()) {
+            throw ProjectException.templateUnavailable();
+        }
+        jdbc.update("""
+                update projects set name = coalesce(?, name),
+                    selected_template_id = coalesce(?, selected_template_id),
+                    default_aspect_ratio = coalesce(?, default_aspect_ratio), updated_at = ?
+                where id = ?
+                """, name, templateId, aspectRatio, Timestamp.from(clock.instant()), projectId);
+        return getOwned(projectId, owner);
+    }
+
+    @Transactional
+    public void delete(String projectId, ProjectOwner owner) {
+        lockOwnedProject(projectId, owner);
+        requireIdle(projectId);
+        // Cards and project jobs use ON DELETE CASCADE; Product and assets remain reusable.
+        jdbc.update("delete from projects where id = ?", projectId);
+    }
+
+    private void lockOwnedProject(String projectId, ProjectOwner owner) {
+        Product product = jdbc.query("""
+                        select p.name, p.owner_user_id, p.owner_trial_session_id
+                        from projects j join products p on p.id = j.product_id
+                        where j.id = ? for update of j, p
+                        """,
+                        (result, row) -> new Product(result.getString("name"),
+                                result.getString("owner_user_id"), result.getString("owner_trial_session_id")),
+                        projectId).stream().findFirst().orElseThrow(ProjectException::projectNotFound);
+        if (!product.ownedBy(owner)) {
+            throw ProjectException.projectNotFound();
+        }
+    }
+
+    private void requireIdle(String projectId) {
+        if (Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists(select 1 from project_jobs
+                    where project_id = ? and status in ('queued', 'processing'))
+                """, Boolean.class, projectId))) {
+            throw ProjectException.busy();
+        }
+    }
+
     private Product findProduct(String productId) {
         return jdbc.query(
                         "select name, owner_user_id, owner_trial_session_id from products where id = ?",

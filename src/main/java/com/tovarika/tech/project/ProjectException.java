@@ -43,4 +43,12 @@ public final class ProjectException extends RuntimeException {
     static ProjectException badRequest(String message) {
         return new ProjectException(ErrorCodeDto.VALIDATION_ERROR, 400, message);
     }
+
+    static ProjectException templateUnavailable() {
+        return new ProjectException(ErrorCodeDto.TEMPLATE_NOT_FOUND, 422, "Template is not available");
+    }
+
+    static ProjectException busy() {
+        return new ProjectException(ErrorCodeDto.CARD_BUSY, 409, "Project has an active job");
+    }
 }

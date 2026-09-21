@@ -48,12 +48,15 @@ public class ProjectsController implements ProjectsApi {
 
     @Override
     public ResponseEntity<ProjectDto> updateProject(String projectId, UpdateProjectRequestDto request) {
-        throw ProjectException.projectNotFound();
+        return ResponseEntity.ok(dto(projects.update(
+                projectId, owners.resolve(), request.getName(), request.getSelectedTemplateId(),
+                request.getDefaultAspectRatio() == null ? null : request.getDefaultAspectRatio().getValue())));
     }
 
     @Override
     public ResponseEntity<Void> deleteProject(String projectId) {
-        throw ProjectException.projectNotFound();
+        projects.delete(projectId, owners.resolve());
+        return ResponseEntity.noContent().build();
     }
 
     private ProjectDto dto(ProjectView project) {

@@ -1,0 +1,58 @@
+databaseChangeLog:
+  - changeSet:
+      id: 006-project-mutations
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE TABLE templates (
+                  id varchar(40) PRIMARY KEY,
+                  available boolean NOT NULL DEFAULT true
+              );
+
+              CREATE TABLE cards (
+                  id varchar(40) PRIMARY KEY,
+                  project_id varchar(40) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                  position integer NOT NULL CHECK (position BETWEEN 1 AND 10),
+                  status varchar(20) NOT NULL CHECK (status IN ('generating', 'ready', 'regenerating', 'error')),
+                  aspect_ratio varchar(8) NOT NULL CHECK (aspect_ratio IN ('1:1', '3:4', '4:5', '16:9')),
+                  template_id varchar(40) NOT NULL REFERENCES templates(id),
+                  prompt varchar(8000) NOT NULL,
+                  idea varchar(2000) NOT NULL,
+                  image_asset_id varchar(40) REFERENCES assets(id),
+                  created_at timestamptz NOT NULL,
+                  updated_at timestamptz NOT NULL,
+                  UNIQUE (project_id, position)
+              );
+
+              CREATE TABLE project_jobs (
+                  id varchar(40) PRIMARY KEY,
+                  project_id varchar(40) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                  type varchar(30) NOT NULL CHECK (type IN (
+                      'card_generation', 'card_regeneration', 'card_region_edit', 'export'
+                  )),
+                  status varchar(20) NOT NULL CHECK (status IN ('queued', 'processing', 'completed', 'failed')),
+                  created_at timestamptz NOT NULL,
+                  updated_at timestamptz NOT NULL
+              );
+              CREATE INDEX ix_project_jobs_project ON project_jobs (project_id);
+
+              -- Job creation and project mutations serialize on the same row.
+              -- This also covers writers outside the future job application service.
+              CREATE FUNCTION lock_job_project() RETURNS trigger LANGUAGE plpgsql AS $$
+              BEGIN
+                  IF TG_OP = 'UPDATE' THEN
+                      IF NEW.project_id <> OLD.project_id
+                          OR (OLD.status IN ('completed', 'failed') AND NEW.status IN ('queued', 'processing')) THEN
+                          RAISE EXCEPTION 'Job project and terminal state are immutable' USING ERRCODE = '23514';
+                      END IF;
+                      RETURN NEW;
+                  END IF;
+                  PERFORM id FROM projects WHERE id = NEW.project_id FOR UPDATE;
+                  RETURN NEW;
+              END;
+              $$;
+              CREATE TRIGGER project_jobs_lock_project
+                  BEFORE INSERT OR UPDATE ON project_jobs
+                  FOR EACH ROW EXECUTE FUNCTION lock_job_project();

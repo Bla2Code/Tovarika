@@ -55,6 +55,11 @@
         "name": "database",
         "path": "src/main/resources/db/changelog",
         "responsibility": "Версионирование схемы PostgreSQL через Liquibase, включая users, auth identities, sessions/token history, one-time tokens, OAuth attempts, trial ownership и rate limits."
+      },
+      {
+        "name": "project",
+        "path": "src/main/java/com/tovarika/tech/project",
+        "responsibility": "Создание, чтение, список, частичное обновление и удаление проектов; ownership, доступность шаблона, блокировка при активной project job и атомарное удаление карточек. Product и assets сохраняются."
       }
     ]
   },
@@ -239,7 +244,8 @@
     "compileWithoutTests": "./gradlew classes",
     "buildJarWithoutTests": "./gradlew bootJar -x test",
     "testAuthentication": "./gradlew test --tests com.tovarika.tech.auth.AuthenticationContractIntegrationTest",
-    "test": "./gradlew test"
+    "test": "./gradlew test",
+    "testProjectMutations": "./gradlew test --tests com.tovarika.tech.project.ProjectMutationsIntegrationTest"
   },
   "importantConstraints": [
     "Для сборки рядом должен находиться репозиторий tovarika-api-contract с подготовленным каталогом dist.",
