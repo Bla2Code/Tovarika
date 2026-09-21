@@ -20,15 +20,36 @@ public class AllowedOriginFilter extends OncePerRequestFilter {
 
     private final Set<String> allowedOrigins;
     private final SecurityErrorWriter errorWriter;
+    private final String trialCookieName;
 
     public AllowedOriginFilter(AuthenticationProperties properties, SecurityErrorWriter errorWriter) {
         this.allowedOrigins = Set.copyOf(properties.cors().allowedOrigins());
         this.errorWriter = errorWriter;
+        this.trialCookieName = properties.cookie().trialName();
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !HttpMethod.POST.matches(request.getMethod()) || !COOKIE_MUTATIONS.contains(request.getRequestURI());
+        boolean authMutation = HttpMethod.POST.matches(request.getMethod())
+                && COOKIE_MUTATIONS.contains(request.getRequestURI());
+        boolean projectMutation = (HttpMethod.PATCH.matches(request.getMethod())
+                || HttpMethod.DELETE.matches(request.getMethod()))
+                && request.getRequestURI().matches("/api/v1/projects/[^/]+/?")
+                && !hasBearer(request) && hasTrialCookie(request);
+        return !authMutation && !projectMutation;
+    }
+
+    private boolean hasBearer(HttpServletRequest request) {
+        String authorization = request.getHeader("Authorization");
+        return authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7);
+    }
+
+    private boolean hasTrialCookie(HttpServletRequest request) {
+        if (request.getCookies() == null) {
+            return false;
+        }
+        return java.util.Arrays.stream(request.getCookies())
+                .anyMatch(cookie -> trialCookieName.equals(cookie.getName()));
     }
 
     @Override

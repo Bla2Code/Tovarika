@@ -68,7 +68,7 @@ public class SecurityConfiguration {
             throws Exception {
         http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         http.cors(cors -> cors.configurationSource(corsConfigurationSource));
-        // Bearer authentication is not ambient-cookie authentication. The three refresh-cookie mutations are
+        // Bearer authentication is not ambient-cookie authentication. Cookie mutations are
         // protected by strict Origin validation in AllowedOriginFilter, matching the public contract without
         // introducing an undocumented synchronizer-token requirement.
         http.csrf(csrf -> csrf.disable());
@@ -76,6 +76,8 @@ public class SecurityConfiguration {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/projects").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/projects/*").permitAll()
+                .requestMatchers(HttpMethod.PATCH, "/api/v1/projects/*").permitAll()
+                .requestMatchers(HttpMethod.DELETE, "/api/v1/projects/*").permitAll()
                 .requestMatchers(
                         "/api/v1/auth/register",
                         "/api/v1/auth/login",
