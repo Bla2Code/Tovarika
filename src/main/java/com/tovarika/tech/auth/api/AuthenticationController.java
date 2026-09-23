@@ -71,8 +71,12 @@ public class AuthenticationController implements AuthenticationApi {
                 request.getEmail(),
                 request.getPassword(),
                 request.getDisplayName(),
-                requestContext.cookie(cookies.trialCookieName()));
-        return ResponseEntity.status(201).body(new RegistrationResultDto(mapper.user(user)));
+                requestContext.optionalPrincipal() == null ? requestContext.cookie(cookies.trialCookieName()) : null);
+        var response = ResponseEntity.status(201);
+        if (requestContext.optionalPrincipal() == null && requestContext.cookie(cookies.trialCookieName()) != null) {
+            response.header(HttpHeaders.SET_COOKIE, cookies.clearTrial().toString());
+        }
+        return response.body(new RegistrationResultDto(mapper.user(user)));
     }
 
     @Override

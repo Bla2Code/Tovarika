@@ -16,7 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class AllowedOriginFilter extends OncePerRequestFilter {
 
     private static final Set<String> COOKIE_MUTATIONS = Set.of(
-            "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/password-change");
+            "/api/v1/trial-session", "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/password-change");
 
     private final Set<String> allowedOrigins;
     private final SecurityErrorWriter errorWriter;

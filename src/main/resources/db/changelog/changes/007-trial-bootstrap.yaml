@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 007-trial-bootstrap
+      author: codex
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE trial_sessions
+                  ADD COLUMN generation_limit integer NOT NULL DEFAULT 3,
+                  ADD COLUMN generations_used integer NOT NULL DEFAULT 0,
+                  ADD CONSTRAINT ck_trial_generation_limit CHECK (generation_limit = 3),
+                  ADD CONSTRAINT ck_trial_generations_used CHECK (generations_used BETWEEN 0 AND generation_limit);

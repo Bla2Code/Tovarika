@@ -35,6 +35,10 @@ public class AuthenticationCookieService {
         return clear(properties.cookie().oauthName());
     }
 
+    public ResponseCookie createTrial(String rawToken, Duration maxAge) {
+        return cookie(properties.cookie().trialName(), rawToken, maxAge, true);
+    }
+
     public ResponseCookie clearTrial() {
         return clear(properties.cookie().trialName());
     }

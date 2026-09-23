@@ -547,6 +547,220 @@ class AuthenticationContractIntegrationTest {
                 .isEqualTo(1);
     }
 
+    @Test
+    void trial_bootstrap_restores_counters_and_expiry_without_exposing_token() throws Exception {
+        Logger root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        root.addAppender(appender);
+        try {
+            var created = mockMvc.perform(post("/api/v1/trial-session").header("Origin", "https://ui.test"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value("active"))
+                    .andExpect(jsonPath("$.generationLimit").value(3))
+                    .andExpect(jsonPath("$.generationsUsed").value(0))
+                    .andExpect(jsonPath("$.remainingGenerations").value(3))
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andReturn().getResponse();
+            Cookie cookie = created.getCookie(cookies.trialCookieName());
+            assertThat(cookie).isNotNull();
+            assertThat(cookie.getValue()).matches("[A-Za-z0-9_-]{43}");
+            assertThat(created.getHeader("Set-Cookie"))
+                    .contains("Secure", "HttpOnly", "SameSite=Lax", "Path=/").doesNotContain("Domain=");
+            assertThat(created.getContentAsString()).doesNotContain(cookie.getValue());
+            String id = jdbc.queryForObject("select id from trial_sessions", String.class);
+            Instant expiry = jdbc.queryForObject("select expires_at from trial_sessions", Timestamp.class).toInstant();
+            assertThat(jdbc.queryForObject("select token_hash from trial_sessions", String.class))
+                    .isEqualTo(opaqueTokens.hash(cookie.getValue()));
+            for (int used : List.of(1, 3)) {
+                jdbc.update("update trial_sessions set generations_used = ? where id = ?", used, id);
+                for (var request : List.of(post("/api/v1/trial-session"), get("/api/v1/trial-session"))) {
+                    mockMvc.perform(request.cookie(cookie).header("Origin", "https://ui.test"))
+                            .andExpect(status().isOk())
+                            .andExpect(jsonPath("$.id").value(id))
+                            .andExpect(jsonPath("$.status").value(used == 3 ? "exhausted" : "active"))
+                            .andExpect(jsonPath("$.generationsUsed").value(used))
+                            .andExpect(jsonPath("$.remainingGenerations").value(3 - used))
+                            .andExpect(header().doesNotExist("Set-Cookie"));
+                }
+            }
+            assertThat(jdbc.queryForObject("select expires_at from trial_sessions", Timestamp.class).toInstant())
+                    .isEqualTo(expiry);
+            assertThat(jdbc.queryForObject("select count(*) from trial_sessions", Integer.class)).isEqualTo(1);
+            assertThat(appender.list).allSatisfy(event ->
+                    assertThat(event.getFormattedMessage()).doesNotContain(cookie.getValue()));
+        } finally {
+            root.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void trial_missing_invalid_and_expired_credentials_never_create_replacement() throws Exception {
+        mockMvc.perform(get("/api/v1/trial-session"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TRIAL_SESSION_NOT_FOUND"));
+        Cookie cookie = newTrialCookie();
+        jdbc.update("update trial_sessions set expires_at = current_timestamp - interval '1 second'");
+        for (Cookie credential : List.of(cookie, new Cookie(cookies.trialCookieName(), "invalid"),
+                new Cookie(cookies.trialCookieName(), ""))) {
+            for (var request : List.of(post("/api/v1/trial-session"), get("/api/v1/trial-session"))) {
+                mockMvc.perform(request.cookie(credential).header("Origin", "https://ui.test"))
+                        .andExpect(status().isUnauthorized())
+                        .andExpect(jsonPath("$.code").value("TRIAL_SESSION_NOT_FOUND"))
+                        .andExpect(header().doesNotExist("Set-Cookie"));
+            }
+        }
+        assertThat(jdbc.queryForObject("select count(*) from trial_sessions", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void trial_creation_is_rate_limited_across_requests_and_restore_still_works() throws Exception {
+        Cookie first = newTrialCookie();
+        for (int i = 1; i < 10; i++) {
+            newTrialCookie();
+        }
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(post("/api/v1/trial-session").header("Origin", "https://ui.test"))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
+                    .andExpect(header().doesNotExist("Set-Cookie"));
+        }
+        mockMvc.perform(post("/api/v1/trial-session").header("Origin", "https://ui.test").cookie(first))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("select count(*) from trial_sessions", Integer.class)).isEqualTo(10);
+        assertThat(jdbc.queryForObject("select attempts from authentication_rate_limits where scope = 'TRIAL_CREATE'",
+                Integer.class)).isEqualTo(12);
+    }
+
+    @Test
+    void trial_bootstrap_requires_allowlisted_origin() throws Exception {
+        mockMvc.perform(post("/api/v1/trial-session")).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/trial-session").header("Origin", "https://evil.test"))
+                .andExpect(status().isForbidden());
+        Cookie cookie = newTrialCookie();
+        mockMvc.perform(post("/api/v1/trial-session").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/trial-session").cookie(cookie).header("Origin", "https://evil.test"))
+                .andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("select count(*) from trial_sessions", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void bootstrap_conversion_uses_existing_registration_and_preserves_counters() throws Exception {
+        Cookie cookie = newTrialCookie();
+        String trialId = jdbc.queryForObject("select id from trial_sessions", String.class);
+        jdbc.update("update trial_sessions set generations_used = 2");
+        insertTrialWorkspace(trialId);
+        mockMvc.perform(post("/api/v1/auth/register").cookie(cookie).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"bootstrap@example.com","password":"%s"}
+                                """.formatted(PASSWORD)))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.allOf(
+                        org.hamcrest.Matchers.containsString(cookies.trialCookieName() + "="),
+                        org.hamcrest.Matchers.containsString("Max-Age=0"))));
+        String userId = jdbc.queryForObject("select owner_user_id from trial_sessions", String.class);
+        assertThat(userId).isNotBlank();
+        assertThat(jdbc.queryForObject("select generations_used from trial_sessions", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select owner_user_id from products where id = 'prd_bootstrap'", String.class))
+                .isEqualTo(userId);
+        for (var request : List.of(post("/api/v1/trial-session"), get("/api/v1/trial-session"))) {
+            mockMvc.perform(request.cookie(cookie).header("Origin", "https://ui.test"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("TRIAL_SESSION_NOT_FOUND"));
+        }
+        var grant = emailAuthentication.login("bootstrap@example.com", PASSWORD, METADATA);
+        mockMvc.perform(get("/api/v1/projects/prj_bootstrap").header("Authorization", "Bearer " + grant.accessToken()))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/auth/register").cookie(cookie).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"bootstrap@example.com","password":"%s"}
+                                """.formatted(PASSWORD)))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("select count(*) from trial_sessions", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void bearer_has_priority_for_workspace_but_does_not_replace_trial_cookie() throws Exception {
+        Cookie cookie = newTrialCookie();
+        insertTrialWorkspace(jdbc.queryForObject("select id from trial_sessions", String.class));
+        var grant = activeAccount("separate-owner@example.com");
+        mockMvc.perform(get("/api/v1/projects/prj_bootstrap").cookie(cookie)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/projects/prj_bootstrap").cookie(cookie)
+                        .header("Authorization", "Bearer " + grant.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/projects/prj_bootstrap").cookie(cookie)
+                        .header("Authorization", "Bearer invalid"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/trial-session").header("Authorization", "Bearer " + grant.accessToken()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/trial-session").cookie(cookie)
+                        .header("Authorization", "Bearer " + grant.accessToken()))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("select owner_user_id from trial_sessions", String.class)).isNull();
+    }
+
+    @Test
+    void bearer_registration_does_not_convert_ambient_trial_owner() throws Exception {
+        Cookie cookie = newTrialCookie();
+        String trialId = jdbc.queryForObject("select id from trial_sessions", String.class);
+        insertTrialWorkspace(trialId);
+        var grant = activeAccount("existing-bearer@example.com");
+        mockMvc.perform(post("/api/v1/auth/register").cookie(cookie)
+                        .header("Authorization", "Bearer " + grant.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"new-bearer-registration@example.com","password":"%s"}
+                                """.formatted(PASSWORD)))
+                .andExpect(status().isCreated())
+                .andExpect(header().doesNotExist("Set-Cookie"));
+        assertThat(jdbc.queryForObject("select owner_user_id from trial_sessions", String.class)).isNull();
+        assertThat(jdbc.queryForObject("select owner_trial_session_id from products", String.class)).isEqualTo(trialId);
+        mockMvc.perform(get("/api/v1/trial-session").cookie(cookie)).andExpect(status().isOk());
+    }
+
+    @Test
+    void parallel_trial_creation_cannot_exceed_database_rate_limit() throws Exception {
+        for (int i = 0; i < 9; i++) {
+            newTrialCookie();
+        }
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Integer> create = () -> {
+                ready.countDown();
+                if (!start.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Start barrier timed out");
+                }
+                return mockMvc.perform(post("/api/v1/trial-session").header("Origin", "https://ui.test"))
+                        .andReturn().getResponse().getStatus();
+            };
+            Future<Integer> first = executor.submit(create);
+            Future<Integer> second = executor.submit(create);
+            assertThat(ready.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(List.of(first.get(20, java.util.concurrent.TimeUnit.SECONDS),
+                    second.get(20, java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder(201, 429);
+        }
+        assertThat(jdbc.queryForObject("select count(*) from trial_sessions", Integer.class)).isEqualTo(10);
+    }
+
+    private Cookie newTrialCookie() throws Exception {
+        return mockMvc.perform(post("/api/v1/trial-session").header("Origin", "https://ui.test"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getCookie(cookies.trialCookieName());
+    }
+
+    private void insertTrialWorkspace(String trialId) {
+        jdbc.update("""
+                insert into products(id, name, owner_trial_session_id, created_at, updated_at)
+                values ('prd_bootstrap', 'Trial product', ?, current_timestamp, current_timestamp)
+                """, trialId);
+        jdbc.update("""
+                insert into projects(id, name, product_id, default_aspect_ratio, created_at, updated_at)
+                values ('prj_bootstrap', 'Trial project', 'prd_bootstrap', '3:4', current_timestamp, current_timestamp)
+                """);
+    }
+
     private SessionGrant activeAccount(String email) {
         emailAuthentication.register(email, PASSWORD, "Test User", null);
         return emailAuthentication.login(email, PASSWORD, METADATA);

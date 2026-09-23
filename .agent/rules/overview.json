@@ -60,6 +60,11 @@
         "name": "project",
         "path": "src/main/java/com/tovarika/tech/project",
         "responsibility": "Создание, чтение, список, частичное обновление и удаление проектов; ownership, доступность шаблона, блокировка при активной project job и атомарное удаление карточек. Product и assets сохраняются."
+      },
+      {
+        "name": "trial",
+        "path": "src/main/java/com/tovarika/tech/trial",
+        "responsibility": "Anonymous workspace bootstrap/restore, generation counters, DB-backed creation rate limit and shared bearer-first identity resolver; conversion uses existing AuthenticationStore hook."
       }
     ]
   },
@@ -231,7 +236,10 @@
       "SMTP_AUTH",
       "SMTP_STARTTLS",
       "AUTH_MAIL_FROM",
-      "AUTH_UI_BASE_URI"
+      "AUTH_UI_BASE_URI",
+      "TRIAL_SESSION_TTL",
+      "TRIAL_CREATION_MAX_ATTEMPTS",
+      "TRIAL_CREATION_WINDOW"
     ],
     "rule": "Значения по умолчанию предназначены только для локальной разработки; production-секреты передаются через окружение и не хранятся в Git."
   },

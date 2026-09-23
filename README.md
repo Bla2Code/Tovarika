@@ -186,3 +186,35 @@ job выполняются на PostgreSQL 18 с настоящими JWT:
 ```bash
 ./gradlew test --tests com.tovarika.tech.project.ProjectMutationsIntegrationTest
 ```
+
+## Анонимный workspace (trial)
+
+`POST /api/v1/trial-session` без cookie создаёт identity (`201`) и устанавливает
+`__Host-tovarika_trial` с `Secure; HttpOnly; SameSite=Lax; Path=/`, без Domain.
+Для POST требуется allowlisted `Origin`, в том числе при первом bootstrap.
+Повторный POST с действующей cookie возвращает `200` без новой cookie, продления срока
+или изменения счётчиков. `GET /api/v1/trial-session` читает только cookie: Bearer её не заменяет.
+Оба ответа используют `Cache-Control: no-store`.
+
+Лимит по контракту равен 3, использовано изначально 0; при исчерпании возвращается
+`exhausted`. Списание генераций сюда не входит. Срок по умолчанию — 30 дней
+(`TRIAL_SESSION_TTL`). Отсутствующая cookie на GET, пустая/невалидная, expired или converted
+cookie дают `401 TRIAL_SESSION_NOT_FOUND`. Новый лимит вместо недействующего не создаётся.
+
+Создание ограничено в PostgreSQL: по умолчанию 10 новых сессий на адрес клиента за часовое
+фиксированное окно (`TRIAL_CREATION_MAX_ATTEMPTS`, `TRIAL_CREATION_WINDOW`), далее `429`.
+Восстановление существующей сессии не расходует этот лимит. Адрес берётся из servlet transport,
+произвольный `X-Forwarded-For` не используется. При reverse proxy без доверенной настройки
+передачи адреса лимит будет общим для клиентов этого proxy; настройку доверенных proxy
+следует выполнить на уровне deployment. Очистка cookie не сбрасывает серверный rate limit.
+В БД хранится только SHA-256 hash криптографически случайного 256-bit opaque token.
+
+`WorkspaceIdentityResolver` выбирает Bearer user первым, иначе проверяет trial cookie;
+проекты используют этот общий resolver. Регистрация использует существующий транзакционный
+hook `AuthenticationStore.convertTrial`: переносит Product и доступ к связанным Project/Card,
+сохраняет счётчики, помечает session converted и очищает cookie. Если регистрация пришла с
+Bearer, trial-владелец не переносится неявно. ProductAnalysis и самостоятельный ownership
+Asset ещё не реализованы в backend; их будущая конвертация должна расширять этот же hook.
+
+Проверки bootstrap, expiry, rate limit, identity isolation, conversion и отсутствия raw token
+в логах входят в `AuthenticationContractIntegrationTest` и выполняются на PostgreSQL 18.

@@ -229,6 +229,8 @@ public class JpaAuthenticationStore implements AuthenticationStore {
         }
         trial.owner = users.getReferenceById(userId);
         trial.convertedAt = now;
+        // JDBC does not trigger JPA auto-flush; the new user must exist before the ownership FK update.
+        trialSessions.flush();
         jdbc.update(
                 "update products set owner_user_id = ?, owner_trial_session_id = null where owner_trial_session_id = ?",
                 userId,
