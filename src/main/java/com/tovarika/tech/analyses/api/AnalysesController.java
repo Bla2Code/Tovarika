@@ -4,7 +4,8 @@ import com.tovarika.api.publicapi.AnalysesApi;
 import com.tovarika.api.publicapi.model.*;
 import com.tovarika.tech.analyses.application.AnalysisService;
 import com.tovarika.tech.trial.api.WorkspaceIdentityResolver;
-import com.tovarika.tech.shared.application.ApiFailure;
+import com.tovarika.tech.analyses.domain.ProductAnalysisView;
+import java.time.ZoneOffset;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,9 +21,18 @@ public class AnalysesController implements AnalysesApi {
                 new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.PRODUCT_ANALYSIS,job.analysisId()),1000));
     }
     public ResponseEntity<ProductAnalysisDto> getProductAnalysis(String productId) {
-        throw new ApiFailure(404,"ANALYSIS_NOT_FOUND","Analysis retrieval is not implemented yet");
+        var owner=identities.resolve();
+        return ResponseEntity.ok().header("Cache-Control","no-store")
+                .body(dto(service.getAnalysis(productId,owner.userId(),owner.trialSessionId())));
     }
     public ResponseEntity<ProductAnalysisDto> updateProductAnalysis(String productId,UpdateProductAnalysisRequestDto request) {
-        throw new ApiFailure(404,"ANALYSIS_NOT_FOUND","Analysis editing is not implemented yet");
+        var owner=identities.resolve();
+        return ResponseEntity.ok().header("Cache-Control","no-store").body(dto(service.updateAnalysis(
+                productId,owner.userId(),owner.trialSessionId(),request.getTitle(),request.getDescription(),request.getIdea())));
+    }
+    private ProductAnalysisDto dto(ProductAnalysisView analysis) {
+        return new ProductAnalysisDto(analysis.id(),analysis.productId(),analysis.description(),analysis.idea(),
+                analysis.generationPrompt(),analysis.revision(),analysis.createdAt().atOffset(ZoneOffset.UTC),
+                analysis.updatedAt().atOffset(ZoneOffset.UTC)).title(analysis.title());
     }
 }

@@ -74,7 +74,7 @@
       {
         "name": "analyses",
         "path": "src/main/java/com/tovarika/tech/analyses",
-        "responsibility": "Idempotent product-analysis jobs, PostgreSQL queue/lease/fencing, worker state transitions, server-owned prompt and safe metrics."
+        "responsibility": "Idempotent product-analysis jobs, PostgreSQL queue/lease/fencing, worker state transitions, owned GET/PATCH, revisioned edits, server-owned prompt and safe metrics."
       },
       {
         "name": "images",

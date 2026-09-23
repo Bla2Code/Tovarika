@@ -14,6 +14,9 @@ public interface AnalysisStore {
     Source source(String productId);
     boolean complete(AnalysisJob job, AnalysisResult result, String prompt, Instant now);
     boolean fail(AnalysisJob job, Instant now);
+    Optional<ProductAnalysisView> findAnalysis(String productId);
+    ProductAnalysisView updateAnalysis(
+            String productId, String title, String description, String idea, String prompt, Instant now);
     record Product(String id, String status, String analysisJobId) {}
     record Source(String storageKey, String mediaType) {}
 }

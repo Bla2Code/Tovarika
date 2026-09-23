@@ -13,9 +13,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnalysisService {
     private final AnalysisStore store;
     private final AuthenticationRateLimiter limiter;
+    private final GenerationPromptBuilder prompts;
     private final Clock clock;
-    public AnalysisService(AnalysisStore store,AuthenticationRateLimiter limiter,Clock clock) {
-        this.store=store;this.limiter=limiter;this.clock=clock;
+    public AnalysisService(AnalysisStore store,AuthenticationRateLimiter limiter,
+            GenerationPromptBuilder prompts,Clock clock) {
+        this.store=store;this.limiter=limiter;this.prompts=prompts;this.clock=clock;
     }
     @Transactional
     public AnalysisJob start(String productId,String key,String userId,String trialId) {
@@ -37,6 +39,38 @@ public class AnalysisService {
     @Transactional(readOnly=true)
     public AnalysisJob getJob(String id,String userId,String trialId) {
         return store.ownedJob(id,userId,trialId).orElseThrow(()->new ApiFailure(404,"JOB_NOT_FOUND","Job not found"));
+    }
+    @Transactional
+    public com.tovarika.tech.analyses.domain.ProductAnalysisView getAnalysis(
+            String productId,String userId,String trialId) {
+        var product=store.lockProduct(productId,userId,trialId);
+        requireReady(product);
+        return store.findAnalysis(productId)
+                .orElseThrow(()->new ApiFailure(404,"ANALYSIS_NOT_FOUND","Analysis not found"));
+    }
+    @Transactional
+    public com.tovarika.tech.analyses.domain.ProductAnalysisView updateAnalysis(
+            String productId,String userId,String trialId,String title,String description,String idea) {
+        store.lockOwner(userId,trialId);
+        var product=store.lockProduct(productId,userId,trialId);
+        requireReady(product);
+        var current=store.findAnalysis(productId)
+                .orElseThrow(()->new ApiFailure(404,"ANALYSIS_NOT_FOUND","Analysis not found"));
+        String nextTitle=title==null?current.title():title;
+        String nextDescription=description==null?current.description():description;
+        String nextIdea=idea==null?current.idea():idea;
+        var content=new com.tovarika.tech.analyses.domain.AnalysisResult(nextTitle,nextDescription,nextIdea);
+        Instant updatedAt=clock.instant();
+        if(!updatedAt.isAfter(current.updatedAt())) updatedAt=current.updatedAt().plusNanos(1_000);
+        return store.updateAnalysis(productId,nextTitle,nextDescription,nextIdea,prompts.build(content),updatedAt);
+    }
+    private void requireReady(AnalysisStore.Product product) {
+        switch(product.status()) {
+            case "analysis_ready" -> { }
+            case "analysis_pending" -> throw new ApiFailure(409,"RESULT_NOT_READY","Analysis is still processing");
+            case "analysis_failed" -> throw new ApiFailure(409,"ANALYSIS_FAILED","Product analysis failed");
+            default -> throw new ApiFailure(404,"ANALYSIS_NOT_FOUND","Analysis not found");
+        }
     }
     private String id(String prefix) { return prefix+UUID.randomUUID().toString().replace("-",""); }
 }

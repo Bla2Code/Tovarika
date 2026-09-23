@@ -77,6 +77,17 @@ public class JdbcAnalysisStore implements AnalysisStore {
         terminal(j,"failed","analysis_failed",now);
         return true;
     }
+    public Optional<ProductAnalysisView> findAnalysis(String productId) {
+        return jdbc.query("select * from product_analyses where product_id=?", (r,n)->analysis(r), productId)
+                .stream().findFirst();
+    }
+    public ProductAnalysisView updateAnalysis(String productId, String title, String description,
+            String idea, String prompt, Instant now) {
+        return jdbc.queryForObject("""
+                update product_analyses set title=?,description=?,idea=?,generation_prompt=?,
+                    revision=revision+1,updated_at=? where product_id=? returning *
+                """, (r,n)->analysis(r), title,description,idea,prompt,Timestamp.from(now),productId);
+    }
     private void terminal(AnalysisJob j,String state,String productState,Instant now) {
         jdbc.update("update analysis_jobs set status=?,finished_at=?,lease_until=null where id=?",state,Timestamp.from(now),j.id());
         jdbc.update("update products set status=?,updated_at=? where id=?",productState,Timestamp.from(now),j.productId());
@@ -84,6 +95,11 @@ public class JdbcAnalysisStore implements AnalysisStore {
     private AnalysisJob job(ResultSet r) throws SQLException {
         return new AnalysisJob(r.getString("id"),r.getString("product_id"),r.getString("analysis_id"),r.getString("status"),
                 r.getInt("attempt"),r.getTimestamp("created_at").toInstant(),instant(r,"started_at"),instant(r,"finished_at"));
+    }
+    private ProductAnalysisView analysis(ResultSet r) throws SQLException {
+        return new ProductAnalysisView(r.getString("id"),r.getString("product_id"),r.getString("title"),
+                r.getString("description"),r.getString("idea"),r.getString("generation_prompt"),
+                r.getInt("revision"),r.getTimestamp("created_at").toInstant(),r.getTimestamp("updated_at").toInstant());
     }
     private Instant instant(ResultSet r,String field) throws SQLException { var value=r.getTimestamp(field);return value==null?null:value.toInstant(); }
 }

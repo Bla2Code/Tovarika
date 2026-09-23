@@ -288,3 +288,22 @@ API и требовать структурированный результат 
 <https://developers.openai.com/api/docs/guides/image-generation>.
 
 Проверка: `./gradlew test --tests com.tovarika.tech.auth.AnalysisJobsIntegrationTest`.
+
+## Получение и редактирование анализа
+
+`GET /api/v1/products/{productId}/analysis` возвращает текущий ProductAnalysis только
+владельцу Product. Состояния различаются стабильными кодами: uploaded без результата —
+`404 ANALYSIS_NOT_FOUND`, pending — `409 RESULT_NOT_READY`, failed —
+`409 ANALYSIS_FAILED`, отсутствующий или чужой Product — `404 PRODUCT_NOT_FOUND`.
+Bearer имеет приоритет над одновременно переданной trial cookie.
+
+`PATCH` принимает непустое подмножество `title`, `description`, `idea`. Неизвестные поля,
+явный null, `generationPrompt` и выход за ограничения контракта дают
+`422 VALIDATION_ERROR`; пустой или синтаксически неверный объект — `400 VALIDATION_ERROR`.
+Для cookie-authenticated PATCH требуется разрешённый Origin. Сервис блокирует Product,
+читает текущую revision, объединяет частичные изменения, пересобирает server-owned
+generationPrompt и одним SQL update увеличивает revision ровно на один. Исходный Asset,
+Product ownership, analysis id и createdAt не меняются. Конкурентные PATCH сериализуются
+по Product и не теряют изменения разных полей.
+
+Проверка: `./gradlew test --tests com.tovarika.tech.auth.AnalysisEditingIntegrationTest`.

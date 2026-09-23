@@ -74,6 +74,8 @@ public class SecurityConfiguration {
         http.csrf(csrf -> csrf.disable());
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.POST, "/api/v1/products/*/analysis").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/products/*/analysis").permitAll()
+                .requestMatchers(HttpMethod.PATCH, "/api/v1/products/*/analysis").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/products").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/products/*", "/media/assets/*").permitAll()

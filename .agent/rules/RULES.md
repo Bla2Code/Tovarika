@@ -73,6 +73,11 @@ registry factory и ChatGPT adapter. Production OpenAI transport пока отс
 `OPENAI_MODE=stub` не выполняет сеть. Не включай live mode без отдельного `OpenAiClient`,
 структурированной валидации ответа и integration-тестов на boundary.
 
+GET/PATCH ProductAnalysis используют ту же Product ownership boundary. PATCH блокирует
+Product, изменяет только title/description/idea, всегда пересобирает server-owned prompt и
+увеличивает revision одним атомарным update. `generationPrompt`, null и неизвестные поля
+отклоняются до DTO binding.
+
 ## 6. Внешние интеграции
 
 - Работа с MinIO выполняется через инфраструктурный сервис или порт, а не напрямую из контроллера и домена.
