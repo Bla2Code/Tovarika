@@ -73,6 +73,8 @@ public class SecurityConfiguration {
         // introducing an undocumented synchronizer-token requirement.
         http.csrf(csrf -> csrf.disable());
         http.authorizeHttpRequests(authorize -> authorize
+                .requestMatchers(HttpMethod.POST, "/api/v1/products").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/products/*", "/media/assets/*").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/projects").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/projects/*").permitAll()

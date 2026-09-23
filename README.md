@@ -218,3 +218,27 @@ Asset ещё не реализованы в backend; их будущая кон�
 
 Проверки bootstrap, expiry, rate limit, identity isolation, conversion и отсутствия raw token
 в логах входят в `AuthenticationContractIntegrationTest` и выполняются на PostgreSQL 18.
+
+## Исходные товары
+
+`POST /api/v1/products` принимает multipart `image` и необязательное `name`; `GET /api/v1/products/{id}`
+доступен только владельцу через Bearer или trial cookie. Cookie-загрузка требует разрешённого Origin.
+Контрактный purpose исходного Asset — `source_image`. Product создаётся в `uploaded`, без запуска анализа.
+Поддерживаются JPEG, PNG и WEBP: сигнатура и декодирование проверяются независимо от присланного MIME;
+исходные байты сохраняются без преобразований. WEBP декодируется TwelveMonkeys ImageIO 3.13.1.
+Лимит файла 10 MiB применяется servlet multipart parser во время чтения; память не используется для
+накопления всего multipart. Общий multipart ограничен 11 MiB с учётом служебных полей; изображения
+свыше 25 миллионов пикселей отклоняются до декодирования. Rate limit — 30 загрузок в час на transport IP.
+
+Metadata Asset/Product сохраняются одной транзакцией. Durable `product_uploads` reservation создаётся
+до записи MinIO; ошибка компенсируется удалением объекта, неудачная компенсация и сбой процесса
+восстанавливаются scheduled cleanup. Активная загрузка удерживает reservation row lock; уборщик
+использует SKIP LOCKED и удаляет только незавершённые объекты старше часа, не принадлежащие Asset.
+
+URL оригинала — 15-минутная HMAC capability на `/media/assets/{assetId}`; storage key и адрес MinIO
+в API не возвращаются. `ASSET_PUBLIC_BASE_URL` задаёт внешний origin backend; reverse proxy должен
+направлять `/media/assets/*` в backend наряду с `/api/v1/*`. Новый GET Product выдаёт свежий URL.
+Подпись отделена purpose-префиксом от JWT и использует настроенный signing secret; его смена отзывает
+старые URL. URL предоставляет доступ обладателю до expiry, поэтому query string нельзя писать в proxy logs.
+
+Проверка: `./gradlew test --tests com.tovarika.tech.auth.ProductUploadIntegrationTest`.

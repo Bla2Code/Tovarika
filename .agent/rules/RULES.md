@@ -63,6 +63,10 @@ Trial bootstrap находится в `trial`: API → application/port → JDBC
 Конвертация сохраняется в существующем `AuthenticationStore.convertTrial`; перед JDBC-переносом
 владельца нужен JPA flush, чтобы FK видел нового пользователя в той же транзакции.
 
+Загрузка исходного Product реализована в `products`. Asset purpose — `source_image`; бинарный оригинал
+не преобразуется. При изменении storage сохраняй durable reservation/compensation (`product_uploads`)
+и проверку подписанного URL без раскрытия object key.
+
 ## 6. Внешние интеграции
 
 - Работа с MinIO выполняется через инфраструктурный сервис или порт, а не напрямую из контроллера и домена.
