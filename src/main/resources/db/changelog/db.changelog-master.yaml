@@ -13,3 +13,5 @@ databaseChangeLog:
       file: db/changelog/changes/005-project-previews.yaml
   - include:
       file: db/changelog/changes/006-project-mutations.yaml
+  - include:
+      file: db/changelog/changes/007-trial-bootstrap.yaml
