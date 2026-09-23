@@ -61,6 +61,7 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler({
+        org.springframework.web.bind.MissingRequestHeaderException.class,
         MethodArgumentNotValidException.class,
         ConstraintViolationException.class,
         HttpMessageNotReadableException.class,

@@ -70,6 +70,16 @@
         "name": "products",
         "path": "src/main/java/com/tovarika/tech/products",
         "responsibility": "Original image upload/get, signature/decode validation, atomic metadata and durable MinIO compensation, expiring asset delivery."
+      },
+      {
+        "name": "analyses",
+        "path": "src/main/java/com/tovarika/tech/analyses",
+        "responsibility": "Idempotent product-analysis jobs, PostgreSQL queue/lease/fencing, worker state transitions, server-owned prompt and safe metrics."
+      },
+      {
+        "name": "images",
+        "path": "src/main/java/com/tovarika/tech/images",
+        "responsibility": "OCP adapter/factory boundary for image generation and editing; ChatGPT adapter currently uses an explicit offline stub client."
       }
     ]
   },
@@ -246,6 +256,13 @@
       "TRIAL_CREATION_MAX_ATTEMPTS",
       "TRIAL_CREATION_WINDOW",
       "ASSET_PUBLIC_BASE_URL"
+      ,
+      "OPENAI_MODE",
+      "OPENAI_BASE_URL",
+      "OPENAI_API_KEY",
+      "OPENAI_IMAGE_MODEL",
+      "OPENAI_VISION_MODEL",
+      "ANALYSIS_WORKER_ENABLED"
     ],
     "rule": "Значения по умолчанию предназначены только для локальной разработки; production-секреты передаются через окружение и не хранятся в Git."
   },

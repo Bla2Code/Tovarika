@@ -242,3 +242,49 @@ URL оригинала — 15-минутная HMAC capability на `/media/asse
 старые URL. URL предоставляет доступ обладателю до expiry, поэтому query string нельзя писать в proxy logs.
 
 Проверка: `./gradlew test --tests com.tovarika.tech.auth.ProductUploadIntegrationTest`.
+
+## Анализ товара и AI-адаптеры
+
+`POST /api/v1/products/{productId}/analysis` быстро создаёт PostgreSQL job и возвращает
+`202`; Product получает `analysis_pending` и `analysisJobId` в той же транзакции.
+`Idempotency-Key` уникален в пределах владельца: повтор возвращает исходную job, даже
+если позже была запущена другая, а использование ключа для другого Product возвращает
+`409 IDEMPOTENCY_CONFLICT`. Одновременный новый запуск для pending Product возвращает
+`409 ANALYSIS_ALREADY_RUNNING`. Лимит составляет 30 новых анализов в час на identity;
+idempotent replay лимит не расходует.
+
+Worker забирает задания через `FOR UPDATE SKIP LOCKED`, переводит их в `processing` и
+ставит пятиминутную lease. После падения процесса lease позволяет другому worker повторно
+забрать операцию с тем же provider operation ID. Номер attempt ограждает результат старого
+worker, а terminal jobs защищены DB trigger. Успех атомарно сохраняет ProductAnalysis
+revision 1 и `analysis_ready`; ошибка сохраняет только стабильный публичный код
+`ANALYSIS_FAILED`. Текст провайдера, изображение и generation prompt не логируются и не
+попадают в JobFailure. Метрики `tovarika.analysis.latency` и
+`tovarika.analysis.operations` имеют только ограниченный tag `outcome`.
+
+Интеграция AI разделена на интерфейсы. `AnalysisProvider` отвечает за vision-анализ.
+`ImageGenerator.generate(prompt, width, height)` и необязательный `ImageEditor` отвечают
+за создание и редактирование изображений. `ChatGPTAdapter` реализует оба интерфейса,
+а `ImageGeneratorFactory` использует Spring registry: новый адаптер достаточно объявить
+bean с новым именем, код фабрики и клиентского `ImageGenerationService` менять не нужно.
+
+Сейчас `OPENAI_MODE=stub` обязателен: `StubOpenAiClient` не выполняет сетевых запросов,
+анализ помечается `[STUB]`, а генерация возвращает placeholder PNG. Подготовлены переменные:
+
+- `OPENAI_API_KEY` — server-side API key, не передавать в UI и логи;
+- `OPENAI_BASE_URL` — по умолчанию `https://api.openai.com/v1`;
+- `OPENAI_VISION_MODEL` — модель Responses API для анализа исходного изображения;
+- `OPENAI_IMAGE_MODEL` — GPT Image model для generation/edit;
+- `OPENAI_MODE` — пока только `stub`; включать live до регистрации реального
+  `OpenAiClient` запрещено fail-fast проверкой.
+
+Реальный transport должен отправлять изображение анализа как `input_image` в Responses
+API и требовать структурированный результат title/description/idea. Генерация использует
+`POST /v1/images/generations`, редактирование — multipart `POST /v1/images/edits`.
+Размеры приложения нужно явно сопоставлять поддерживаемым API размерам, а base64-ответ
+валидировать тем же `ImageValidator`, что и пользовательские изображения. Актуальные
+форматы и модели проверяйте по официальной документации OpenAI:
+<https://developers.openai.com/api/docs/guides/images-vision> и
+<https://developers.openai.com/api/docs/guides/image-generation>.
+
+Проверка: `./gradlew test --tests com.tovarika.tech.auth.AnalysisJobsIntegrationTest`.

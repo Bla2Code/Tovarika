@@ -67,6 +67,12 @@ Trial bootstrap находится в `trial`: API → application/port → JDBC
 не преобразуется. При изменении storage сохраняй durable reservation/compensation (`product_uploads`)
 и проверку подписанного URL без раскрытия object key.
 
+Асинхронный анализ находится в `analyses`: PostgreSQL job/lease/fencing, provider port и
+server-owned prompt разделены. В `images` находятся `ImageGenerator`, optional `ImageEditor`,
+registry factory и ChatGPT adapter. Production OpenAI transport пока отсутствует намеренно:
+`OPENAI_MODE=stub` не выполняет сеть. Не включай live mode без отдельного `OpenAiClient`,
+структурированной валидации ответа и integration-тестов на boundary.
+
 ## 6. Внешние интеграции
 
 - Работа с MinIO выполняется через инфраструктурный сервис или порт, а не напрямую из контроллера и домена.

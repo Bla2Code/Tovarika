@@ -73,6 +73,8 @@ public class SecurityConfiguration {
         // introducing an undocumented synchronizer-token requirement.
         http.csrf(csrf -> csrf.disable());
         http.authorizeHttpRequests(authorize -> authorize
+                .requestMatchers(HttpMethod.POST, "/api/v1/products/*/analysis").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/products").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/products/*", "/media/assets/*").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
@@ -120,7 +122,7 @@ public class SecurityConfiguration {
         configuration.setAllowedOrigins(properties.cors().allowedOrigins());
         configuration.setAllowCredentials(true);
         configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(java.util.List.of("Authorization", "Content-Type", "X-Request-Id"));
+        configuration.setAllowedHeaders(java.util.List.of("Authorization", "Content-Type", "X-Request-Id", "Idempotency-Key"));
         configuration.setExposedHeaders(java.util.List.of("X-Request-Id"));
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
