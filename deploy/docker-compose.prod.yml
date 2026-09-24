@@ -17,6 +17,7 @@ services:
       JWT_AUDIENCE: ${JWT_AUDIENCE:-tovarika-ui}
       UI_ALLOWED_ORIGINS: ${UI_ALLOWED_ORIGINS:-https://tovarika.com}
       AUTH_COOKIE_SECURE: "true"
+      ASSET_PUBLIC_BASE_URL: ${ASSET_PUBLIC_BASE_URL:-https://tovarika.com}
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
       YANDEX_REDIRECT_URI: ${YANDEX_REDIRECT_URI:-https://api.tovarika.com/api/v1/auth/oauth/yandex/callback}
@@ -41,7 +42,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/openapi/tovarika-openapi.yaml"]
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://localhost:8080/openapi/tovarika-openapi.yaml"]
       interval: 10s
       timeout: 5s
       retries: 12

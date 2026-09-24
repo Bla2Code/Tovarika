@@ -32,9 +32,14 @@ public class AllowedOriginFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         boolean authMutation = HttpMethod.POST.matches(request.getMethod())
                 && COOKIE_MUTATIONS.contains(request.getRequestURI());
-        boolean projectMutation = (HttpMethod.PATCH.matches(request.getMethod())
-                || HttpMethod.DELETE.matches(request.getMethod()))
-                && request.getRequestURI().matches("/api/v1/projects/[^/]+/?")
+        boolean trialConversion = HttpMethod.POST.matches(request.getMethod())
+                && request.getRequestURI().equals("/api/v1/auth/register")
+                && !hasBearer(request) && hasTrialCookie(request);
+        boolean projectMutation = (HttpMethod.POST.matches(request.getMethod())
+                && request.getRequestURI().equals("/api/v1/projects")
+                || (HttpMethod.PATCH.matches(request.getMethod())
+                    || HttpMethod.DELETE.matches(request.getMethod()))
+                    && request.getRequestURI().matches("/api/v1/projects/[^/]+/?"))
                 && !hasBearer(request) && hasTrialCookie(request);
         boolean productMutation = (HttpMethod.POST.matches(request.getMethod())
                 && (request.getRequestURI().equals("/api/v1/products")
@@ -42,7 +47,7 @@ public class AllowedOriginFilter extends OncePerRequestFilter {
                 || HttpMethod.PATCH.matches(request.getMethod())
                     && request.getRequestURI().matches("/api/v1/products/[^/]+/analysis"))
                 && !hasBearer(request) && hasTrialCookie(request);
-        return !authMutation && !projectMutation && !productMutation;
+        return !authMutation && !trialConversion && !projectMutation && !productMutation;
     }
 
     private boolean hasBearer(HttpServletRequest request) {

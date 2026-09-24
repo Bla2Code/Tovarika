@@ -50,8 +50,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AuthException.class)
     ResponseEntity<ApiErrorDto> handleAuth(AuthException exception, HttpServletRequest request) {
         ErrorCodeDto code = ErrorCodeDto.fromValue(exception.code().name());
-        return ResponseEntity.status(exception.status())
-                .body(error(code, exception.getMessage(), request));
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(exception.status());
+        if (exception.retryAfterSeconds() != null) {
+            response.header(org.springframework.http.HttpHeaders.RETRY_AFTER, exception.retryAfterSeconds().toString());
+        }
+        return response.body(error(code, exception.getMessage(), request));
     }
 
     @ExceptionHandler(ProjectException.class)
@@ -73,11 +76,20 @@ public class ApiExceptionHandler {
                 .body(error(ErrorCodeDto.VALIDATION_ERROR, "Request validation failed", request));
     }
 
+    @ExceptionHandler({
+        org.springframework.web.servlet.NoHandlerFoundException.class,
+        org.springframework.web.servlet.resource.NoResourceFoundException.class
+    })
+    ResponseEntity<ApiErrorDto> handleMissingRoute(Exception exception, HttpServletRequest request) {
+        return ResponseEntity.status(404)
+                .body(error(ErrorCodeDto.VALIDATION_ERROR, "Resource not found", request));
+    }
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<ApiErrorDto> handleUnexpected(Exception exception, HttpServletRequest request) {
         String requestId = requestId(request);
         // Exception messages and stack traces may contain provider URLs or credentials; log only safe metadata.
-        log.error("Unhandled authentication request failure requestId={} type={}", requestId, exception.getClass().getName());
+        log.error("Unhandled API request failure requestId={} type={}", requestId, exception.getClass().getName());
         return ResponseEntity.internalServerError()
                 .body(new ApiErrorDto(ErrorCodeDto.INTERNAL_ERROR, "Internal server error", requestId));
     }

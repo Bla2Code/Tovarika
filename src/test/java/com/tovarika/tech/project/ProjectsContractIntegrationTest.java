@@ -1,5 +1,6 @@
 package com.tovarika.tech.project;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -100,6 +101,7 @@ class ProjectsContractIntegrationTest {
 
         MvcResult created = mockMvc.perform(post("/api/v1/projects")
                         .cookie(cookie)
+                        .header("Origin", "http://localhost:8081")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"productId\":\"prd_trial\",\"name\":\"My project\",\"defaultAspectRatio\":\"1:1\"}"))
                 .andExpect(status().isCreated())
@@ -111,6 +113,25 @@ class ProjectsContractIntegrationTest {
         mockMvc.perform(get("/api/v1/projects/{projectId}", projectId).cookie(cookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productId").value("prd_trial"));
+    }
+
+    @Test
+    void trialProjectCreationRequiresAllowedOrigin() throws Exception {
+        String rawToken = "trial-origin-secret";
+        insertTrial("try_origin", rawToken);
+        insertTrialProduct("prd_trial_origin", "Trial product", "try_origin");
+        Cookie cookie = new Cookie(cookies.trialCookieName(), rawToken);
+        String body = "{\"productId\":\"prd_trial_origin\"}";
+
+        mockMvc.perform(post("/api/v1/projects").cookie(cookie)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(post("/api/v1/projects").cookie(cookie).header("Origin", "https://evil.test")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        assertThat(jdbc.queryForObject("select count(*) from projects", Integer.class)).isZero();
     }
 
     @Test

@@ -36,7 +36,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/openapi/tovarika-openapi.yaml"]
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://localhost:8080/openapi/tovarika-openapi.yaml"]
       interval: 10s
       timeout: 5s
       retries: 12

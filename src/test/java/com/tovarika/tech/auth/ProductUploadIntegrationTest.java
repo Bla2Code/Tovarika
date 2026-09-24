@@ -79,6 +79,8 @@ class ProductUploadIntegrationTest {
     @Test void ownerIsolationBearerPriorityAndOrigin() throws Exception {
         Cookie cookie=trial();
         String id=upload(cookie);
+        Cookie otherTrial=trial();
+        mvc.perform(get("/api/v1/products/"+id).cookie(otherTrial)).andExpect(status().isNotFound());
         var token=bearer("owner@test.example");
         mvc.perform(get("/api/v1/products/"+id).header("Authorization", "Bearer "+token).cookie(cookie))
                 .andExpect(status().isNotFound());
@@ -87,11 +89,50 @@ class ProductUploadIntegrationTest {
         mvc.perform(multipart("/api/v1/products").file(image()).cookie(cookie)).andExpect(status().isForbidden());
         mvc.perform(multipart("/api/v1/products").file(image()).cookie(cookie).header("Origin", "https://evil.test"))
                 .andExpect(status().isForbidden());
-        var own=mvc.perform(multipart("/api/v1/products").file(image()).header("Authorization", "Bearer "+token))
+        var own=mvc.perform(multipart("/api/v1/products").file(image()).cookie(cookie)
+                        .header("Authorization", "Bearer "+token))
                 .andExpect(status().isCreated()).andReturn().getResponse();
         String ownId=json.readTree(own.getContentAsString()).get("id").asString();
         mvc.perform(get("/api/v1/products/"+ownId).header("Authorization", "Bearer "+token)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/products/"+ownId).cookie(cookie)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/products/"+ownId).header("Authorization", "Bearer "+bearer("other@test.example")))
+                .andExpect(status().isNotFound());
+        assertThat(jdbc.queryForObject("select owner_user_id is not null from products where id = ?", Boolean.class, ownId)).isTrue();
+        assertThat(jdbc.queryForObject("select owner_trial_session_id from products where id = ?", String.class, ownId)).isNull();
+    }
+    @Test void uploadedProductCreatesServerProjectWithDownloadableSourcePreview() throws Exception {
+        Cookie cookie=trial();
+        byte[] original=fixture("png");
+        var uploaded=mvc.perform(multipart("/api/v1/products")
+                        .file(new MockMultipartFile("image", "product.png", "image/png", original))
+                        .cookie(cookie).header("Origin", "https://ui.test"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("uploaded"))
+                .andExpect(jsonPath("$.analysisJobId").doesNotExist())
+                .andReturn().getResponse();
+        var product=json.readTree(uploaded.getContentAsString());
+        String productId=product.get("id").asString();
+        String assetId=product.get("sourceImage").get("id").asString();
+
+        var created=mvc.perform(post("/api/v1/projects").cookie(cookie).header("Origin", "https://ui.test")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":\""+productId+"\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.productId").value(productId))
+                .andExpect(jsonPath("$.previewImage.id").value(assetId))
+                .andExpect(jsonPath("$.previewImage.purpose").value("source_image"))
+                .andExpect(jsonPath("$.previewImage.expiresAt").isNotEmpty())
+                .andReturn().getResponse();
+        var project=json.readTree(created.getContentAsString());
+        String projectId=project.get("id").asString();
+        URI preview=URI.create(project.get("previewImage").get("url").asString());
+        mvc.perform(get(preview)).andExpect(status().isOk()).andExpect(content().bytes(original));
+        mvc.perform(get("/api/v1/projects/"+projectId).cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.previewImage.id").value(assetId))
+                .andExpect(jsonPath("$.previewImage.url").isNotEmpty());
+        assertThat(jdbc.queryForObject("select count(*) from analysis_jobs", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from project_jobs", Integer.class)).isZero();
     }
     @Test void validationRejectsSpoofedMimeCorruptionEmptyMissingAndOversize() throws Exception {
         Cookie cookie=trial();

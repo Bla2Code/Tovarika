@@ -615,6 +615,18 @@ class AuthenticationContractIntegrationTest {
     }
 
     @Test
+    void missing_route_returns_contract_error_instead_of_internal_error() throws Exception {
+        SessionGrant grant = activeAccount("missing-route@example.com");
+
+        mockMvc.perform(get("/api/v1/route-that-does-not-exist")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + grant.accessToken()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("Resource not found"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
+    @Test
     void trial_creation_is_rate_limited_across_requests_and_restore_still_works() throws Exception {
         Cookie first = newTrialCookie();
         for (int i = 1; i < 10; i++) {
@@ -624,6 +636,8 @@ class AuthenticationContractIntegrationTest {
             mockMvc.perform(post("/api/v1/trial-session").header("Origin", "https://ui.test"))
                     .andExpect(status().isTooManyRequests())
                     .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
+                    .andExpect(header().string(HttpHeaders.RETRY_AFTER,
+                            org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")))
                     .andExpect(header().doesNotExist("Set-Cookie"));
         }
         mockMvc.perform(post("/api/v1/trial-session").header("Origin", "https://ui.test").cookie(first))
@@ -651,10 +665,18 @@ class AuthenticationContractIntegrationTest {
         String trialId = jdbc.queryForObject("select id from trial_sessions", String.class);
         jdbc.update("update trial_sessions set generations_used = 2");
         insertTrialWorkspace(trialId);
+        String registration = """
+                {"email":"bootstrap@example.com","password":"%s"}
+                """.formatted(PASSWORD);
         mockMvc.perform(post("/api/v1/auth/register").cookie(cookie).contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"email":"bootstrap@example.com","password":"%s"}
-                                """.formatted(PASSWORD)))
+                        .content(registration))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/auth/register").cookie(cookie).header("Origin", "https://evil.test")
+                        .contentType(MediaType.APPLICATION_JSON).content(registration))
+                .andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("select converted_at from trial_sessions", Timestamp.class)).isNull();
+        mockMvc.perform(post("/api/v1/auth/register").cookie(cookie).header("Origin", "https://ui.test")
+                        .contentType(MediaType.APPLICATION_JSON).content(registration))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.allOf(
                         org.hamcrest.Matchers.containsString(cookies.trialCookieName() + "="),
@@ -672,10 +694,8 @@ class AuthenticationContractIntegrationTest {
         var grant = emailAuthentication.login("bootstrap@example.com", PASSWORD, METADATA);
         mockMvc.perform(get("/api/v1/projects/prj_bootstrap").header("Authorization", "Bearer " + grant.accessToken()))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/auth/register").cookie(cookie).contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"email":"bootstrap@example.com","password":"%s"}
-                                """.formatted(PASSWORD)))
+        mockMvc.perform(post("/api/v1/auth/register").cookie(cookie).header("Origin", "https://ui.test")
+                        .contentType(MediaType.APPLICATION_JSON).content(registration))
                 .andExpect(status().isConflict());
         assertThat(jdbc.queryForObject("select count(*) from trial_sessions", Integer.class)).isEqualTo(1);
     }

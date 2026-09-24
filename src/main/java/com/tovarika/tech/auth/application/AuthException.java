@@ -4,11 +4,17 @@ public class AuthException extends RuntimeException {
 
     private final AuthErrorCode code;
     private final int status;
+    private final Long retryAfterSeconds;
 
     public AuthException(AuthErrorCode code, int status, String safeMessage) {
+        this(code, status, safeMessage, null);
+    }
+
+    private AuthException(AuthErrorCode code, int status, String safeMessage, Long retryAfterSeconds) {
         super(safeMessage);
         this.code = code;
         this.status = status;
+        this.retryAfterSeconds = retryAfterSeconds;
     }
 
     public AuthErrorCode code() {
@@ -17,6 +23,10 @@ public class AuthException extends RuntimeException {
 
     public int status() {
         return status;
+    }
+
+    public Long retryAfterSeconds() {
+        return retryAfterSeconds;
     }
 
     public static AuthException unauthorized(AuthErrorCode code, String message) {
@@ -37,5 +47,9 @@ public class AuthException extends RuntimeException {
 
     public static AuthException unprocessable(String message) {
         return new AuthException(AuthErrorCode.VALIDATION_ERROR, 422, message);
+    }
+
+    public static AuthException rateLimited(String message, long retryAfterSeconds) {
+        return new AuthException(AuthErrorCode.RATE_LIMITED, 429, message, Math.max(1, retryAfterSeconds));
     }
 }

@@ -9,6 +9,9 @@ import com.tovarika.api.publicapi.model.ProjectDto;
 import com.tovarika.api.publicapi.model.ProjectPageDto;
 import com.tovarika.api.publicapi.model.PaginationMetaDto;
 import com.tovarika.api.publicapi.model.UpdateProjectRequestDto;
+import com.tovarika.tech.products.application.AssetLinks;
+import java.net.URI;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,10 +20,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProjectsController implements ProjectsApi {
     private final ProjectRequestOwnerResolver owners;
     private final ProjectService projects;
+    private final AssetLinks assetLinks;
 
-    public ProjectsController(ProjectRequestOwnerResolver owners, ProjectService projects) {
+    public ProjectsController(ProjectRequestOwnerResolver owners, ProjectService projects, AssetLinks assetLinks) {
         this.owners = owners;
         this.projects = projects;
+        this.assetLinks = assetLinks;
     }
 
     @Override
@@ -76,16 +81,23 @@ public class ProjectsController implements ProjectsApi {
     }
 
     private AssetDto assetDto(ProjectAssetView asset) {
+        URI url = asset.url();
+        Instant expiresAt = asset.expiresAt();
+        if (url == null || url.toString().isBlank()) {
+            AssetLinks.Link link = assetLinks.create(asset.id());
+            url = URI.create(link.url());
+            expiresAt = link.expiresAt();
+        }
         AssetDto dto = new AssetDto(
                 asset.id(),
                 AssetPurposeDto.fromValue(asset.purpose()),
                 asset.mediaType(),
                 asset.sizeBytes(),
-                asset.url(),
+                url,
                 asset.createdAt().atOffset(ZoneOffset.UTC));
         dto.setWidth(asset.width());
         dto.setHeight(asset.height());
-        dto.setExpiresAt(asset.expiresAt() == null ? null : asset.expiresAt().atOffset(ZoneOffset.UTC));
+        dto.setExpiresAt(expiresAt == null ? null : expiresAt.atOffset(ZoneOffset.UTC));
         return dto;
     }
 }

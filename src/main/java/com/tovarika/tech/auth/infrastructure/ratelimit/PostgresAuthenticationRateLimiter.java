@@ -1,6 +1,5 @@
 package com.tovarika.tech.auth.infrastructure.ratelimit;
 
-import com.tovarika.tech.auth.application.AuthErrorCode;
 import com.tovarika.tech.auth.application.AuthException;
 import com.tovarika.tech.auth.application.AuthenticationProperties;
 import com.tovarika.tech.auth.application.port.AuthenticationRateLimiter;
@@ -46,7 +45,8 @@ public class PostgresAuthenticationRateLimiter implements AuthenticationRateLimi
                 Timestamp.from(windowStart),
                 Timestamp.from(windowStart.plus(rule.window()).plus(rule.window())));
         if (attempts != null && attempts > rule.maxAttempts()) {
-            throw new AuthException(AuthErrorCode.RATE_LIMITED, 429, "Authentication rate limit exceeded");
+            long retryAfterSeconds = Duration.between(now, windowStart.plus(rule.window())).toSeconds();
+            throw AuthException.rateLimited("Authentication rate limit exceeded", retryAfterSeconds);
         }
     }
 
