@@ -22,6 +22,31 @@ public class ApiExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
+    @ExceptionHandler(com.tovarika.tech.shared.application.ApiFailure.class)
+    ResponseEntity<ApiErrorDto> handleApi(com.tovarika.tech.shared.application.ApiFailure failure, HttpServletRequest request) {
+        return ResponseEntity.status(failure.status()).body(error(ErrorCodeDto.fromValue(failure.code()), failure.getMessage(), request));
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    ResponseEntity<ApiErrorDto> handleUploadSize(Exception failure, HttpServletRequest request) {
+        return ResponseEntity.status(413).body(error(ErrorCodeDto.FILE_TOO_LARGE, "Image exceeds 10 MiB", request));
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.support.MissingServletRequestPartException.class)
+    ResponseEntity<ApiErrorDto> handleMissingPart(Exception failure, HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(error(ErrorCodeDto.UPLOAD_VALIDATION_ERROR, "Image is required", request));
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    ResponseEntity<ApiErrorDto> handleMediaType(Exception failure, HttpServletRequest request) {
+        return ResponseEntity.status(415).body(error(ErrorCodeDto.UNSUPPORTED_FORMAT, "Unsupported media type", request));
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
+    ResponseEntity<ApiErrorDto> handleMultipart(Exception failure, HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(error(ErrorCodeDto.UPLOAD_VALIDATION_ERROR, "Invalid multipart request", request));
+    }
+
     @ExceptionHandler(AuthException.class)
     ResponseEntity<ApiErrorDto> handleAuth(AuthException exception, HttpServletRequest request) {
         ErrorCodeDto code = ErrorCodeDto.fromValue(exception.code().name());
@@ -36,6 +61,7 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler({
+        org.springframework.web.bind.MissingRequestHeaderException.class,
         MethodArgumentNotValidException.class,
         ConstraintViolationException.class,
         HttpMessageNotReadableException.class,

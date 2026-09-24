@@ -1,0 +1,52 @@
+databaseChangeLog:
+  - changeSet:
+      id: 009-product-analysis-jobs
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE TABLE analysis_jobs (
+                  id varchar(40) PRIMARY KEY,
+                  product_id varchar(40) NOT NULL REFERENCES products(id),
+                  analysis_id varchar(40) NOT NULL UNIQUE,
+                  owner_scope varchar(40) NOT NULL,
+                  idempotency_key varchar(128) NOT NULL,
+                  status varchar(20) NOT NULL CHECK (status IN ('queued','processing','completed','failed')),
+                  attempt integer NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+                  lease_until timestamptz,
+                  created_at timestamptz NOT NULL,
+                  started_at timestamptz,
+                  finished_at timestamptz,
+                  UNIQUE(owner_scope,idempotency_key),
+                  UNIQUE(id,product_id),
+                  CHECK ((status IN ('completed','failed')) = (finished_at IS NOT NULL)),
+                  CHECK ((status = 'processing') = (lease_until IS NOT NULL))
+              );
+              CREATE UNIQUE INDEX ix_analysis_jobs_active ON analysis_jobs(product_id) WHERE status IN ('queued','processing');
+              CREATE INDEX ix_analysis_jobs_queue ON analysis_jobs(status,lease_until,created_at);
+              ALTER TABLE products ADD CONSTRAINT fk_product_analysis_job FOREIGN KEY(analysis_job_id,id) REFERENCES analysis_jobs(id,product_id);
+              CREATE TABLE product_analyses (
+                  id varchar(40) PRIMARY KEY,
+                  product_id varchar(40) NOT NULL UNIQUE REFERENCES products(id),
+                  title varchar(200),
+                  description varchar(4000) NOT NULL CHECK(length(description)>0),
+                  idea varchar(2000) NOT NULL CHECK(length(idea)>0),
+                  generation_prompt varchar(8000) NOT NULL CHECK(length(generation_prompt)>0),
+                  revision integer NOT NULL CHECK(revision >= 1),
+                  created_at timestamptz NOT NULL,
+                  updated_at timestamptz NOT NULL
+              );
+              CREATE FUNCTION guard_analysis_job() RETURNS trigger LANGUAGE plpgsql AS $$
+              BEGIN
+                  IF NEW.product_id <> OLD.product_id OR NEW.analysis_id <> OLD.analysis_id
+                      OR NEW.owner_scope <> OLD.owner_scope OR NEW.idempotency_key <> OLD.idempotency_key
+                      OR OLD.status IN ('completed','failed')
+                      OR (OLD.status = 'queued' AND NEW.status <> 'processing')
+                      OR (OLD.status = 'processing' AND NEW.status = 'queued') THEN
+                      RAISE EXCEPTION 'Invalid analysis job transition' USING ERRCODE='23514';
+                  END IF;
+                  RETURN NEW;
+              END;
+              $$;
+              CREATE TRIGGER guard_analysis_job BEFORE UPDATE ON analysis_jobs FOR EACH ROW EXECUTE FUNCTION guard_analysis_job();

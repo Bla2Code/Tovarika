@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 008-product-upload
+      author: codex
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE assets ADD COLUMN storage_key varchar(255) UNIQUE;
+              ALTER TABLE products ADD COLUMN status varchar(30) NOT NULL DEFAULT 'uploaded'
+                  CHECK (status IN ('uploaded', 'analysis_pending', 'analysis_ready', 'analysis_failed'));
+              ALTER TABLE products ADD COLUMN analysis_job_id varchar(40);
+              CREATE TABLE product_uploads (storage_key varchar(255) PRIMARY KEY, created_at timestamptz NOT NULL);

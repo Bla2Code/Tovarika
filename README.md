@@ -218,3 +218,92 @@ Asset ещё не реализованы в backend; их будущая кон�
 
 Проверки bootstrap, expiry, rate limit, identity isolation, conversion и отсутствия raw token
 в логах входят в `AuthenticationContractIntegrationTest` и выполняются на PostgreSQL 18.
+
+## Исходные товары
+
+`POST /api/v1/products` принимает multipart `image` и необязательное `name`; `GET /api/v1/products/{id}`
+доступен только владельцу через Bearer или trial cookie. Cookie-загрузка требует разрешённого Origin.
+Контрактный purpose исходного Asset — `source_image`. Product создаётся в `uploaded`, без запуска анализа.
+Поддерживаются JPEG, PNG и WEBP: сигнатура и декодирование проверяются независимо от присланного MIME;
+исходные байты сохраняются без преобразований. WEBP декодируется TwelveMonkeys ImageIO 3.13.1.
+Лимит файла 10 MiB применяется servlet multipart parser во время чтения; память не используется для
+накопления всего multipart. Общий multipart ограничен 11 MiB с учётом служебных полей; изображения
+свыше 25 миллионов пикселей отклоняются до декодирования. Rate limit — 30 загрузок в час на transport IP.
+
+Metadata Asset/Product сохраняются одной транзакцией. Durable `product_uploads` reservation создаётся
+до записи MinIO; ошибка компенсируется удалением объекта, неудачная компенсация и сбой процесса
+восстанавливаются scheduled cleanup. Активная загрузка удерживает reservation row lock; уборщик
+использует SKIP LOCKED и удаляет только незавершённые объекты старше часа, не принадлежащие Asset.
+
+URL оригинала — 15-минутная HMAC capability на `/media/assets/{assetId}`; storage key и адрес MinIO
+в API не возвращаются. `ASSET_PUBLIC_BASE_URL` задаёт внешний origin backend; reverse proxy должен
+направлять `/media/assets/*` в backend наряду с `/api/v1/*`. Новый GET Product выдаёт свежий URL.
+Подпись отделена purpose-префиксом от JWT и использует настроенный signing secret; его смена отзывает
+старые URL. URL предоставляет доступ обладателю до expiry, поэтому query string нельзя писать в proxy logs.
+
+Проверка: `./gradlew test --tests com.tovarika.tech.auth.ProductUploadIntegrationTest`.
+
+## Анализ товара и AI-адаптеры
+
+`POST /api/v1/products/{productId}/analysis` быстро создаёт PostgreSQL job и возвращает
+`202`; Product получает `analysis_pending` и `analysisJobId` в той же транзакции.
+`Idempotency-Key` уникален в пределах владельца: повтор возвращает исходную job, даже
+если позже была запущена другая, а использование ключа для другого Product возвращает
+`409 IDEMPOTENCY_CONFLICT`. Одновременный новый запуск для pending Product возвращает
+`409 ANALYSIS_ALREADY_RUNNING`. Лимит составляет 30 новых анализов в час на identity;
+idempotent replay лимит не расходует.
+
+Worker забирает задания через `FOR UPDATE SKIP LOCKED`, переводит их в `processing` и
+ставит пятиминутную lease. После падения процесса lease позволяет другому worker повторно
+забрать операцию с тем же provider operation ID. Номер attempt ограждает результат старого
+worker, а terminal jobs защищены DB trigger. Успех атомарно сохраняет ProductAnalysis
+revision 1 и `analysis_ready`; ошибка сохраняет только стабильный публичный код
+`ANALYSIS_FAILED`. Текст провайдера, изображение и generation prompt не логируются и не
+попадают в JobFailure. Метрики `tovarika.analysis.latency` и
+`tovarika.analysis.operations` имеют только ограниченный tag `outcome`.
+
+Интеграция AI разделена на интерфейсы. `AnalysisProvider` отвечает за vision-анализ.
+`ImageGenerator.generate(prompt, width, height)` и необязательный `ImageEditor` отвечают
+за создание и редактирование изображений. `ChatGPTAdapter` реализует оба интерфейса,
+а `ImageGeneratorFactory` использует Spring registry: новый адаптер достаточно объявить
+bean с новым именем, код фабрики и клиентского `ImageGenerationService` менять не нужно.
+
+Сейчас `OPENAI_MODE=stub` обязателен: `StubOpenAiClient` не выполняет сетевых запросов,
+анализ помечается `[STUB]`, а генерация возвращает placeholder PNG. Подготовлены переменные:
+
+- `OPENAI_API_KEY` — server-side API key, не передавать в UI и логи;
+- `OPENAI_BASE_URL` — по умолчанию `https://api.openai.com/v1`;
+- `OPENAI_VISION_MODEL` — модель Responses API для анализа исходного изображения;
+- `OPENAI_IMAGE_MODEL` — GPT Image model для generation/edit;
+- `OPENAI_MODE` — пока только `stub`; включать live до регистрации реального
+  `OpenAiClient` запрещено fail-fast проверкой.
+
+Реальный transport должен отправлять изображение анализа как `input_image` в Responses
+API и требовать структурированный результат title/description/idea. Генерация использует
+`POST /v1/images/generations`, редактирование — multipart `POST /v1/images/edits`.
+Размеры приложения нужно явно сопоставлять поддерживаемым API размерам, а base64-ответ
+валидировать тем же `ImageValidator`, что и пользовательские изображения. Актуальные
+форматы и модели проверяйте по официальной документации OpenAI:
+<https://developers.openai.com/api/docs/guides/images-vision> и
+<https://developers.openai.com/api/docs/guides/image-generation>.
+
+Проверка: `./gradlew test --tests com.tovarika.tech.auth.AnalysisJobsIntegrationTest`.
+
+## Получение и редактирование анализа
+
+`GET /api/v1/products/{productId}/analysis` возвращает текущий ProductAnalysis только
+владельцу Product. Состояния различаются стабильными кодами: uploaded без результата —
+`404 ANALYSIS_NOT_FOUND`, pending — `409 RESULT_NOT_READY`, failed —
+`409 ANALYSIS_FAILED`, отсутствующий или чужой Product — `404 PRODUCT_NOT_FOUND`.
+Bearer имеет приоритет над одновременно переданной trial cookie.
+
+`PATCH` принимает непустое подмножество `title`, `description`, `idea`. Неизвестные поля,
+явный null, `generationPrompt` и выход за ограничения контракта дают
+`422 VALIDATION_ERROR`; пустой или синтаксически неверный объект — `400 VALIDATION_ERROR`.
+Для cookie-authenticated PATCH требуется разрешённый Origin. Сервис блокирует Product,
+читает текущую revision, объединяет частичные изменения, пересобирает server-owned
+generationPrompt и одним SQL update увеличивает revision ровно на один. Исходный Asset,
+Product ownership, analysis id и createdAt не меняются. Конкурентные PATCH сериализуются
+по Product и не теряют изменения разных полей.
+
+Проверка: `./gradlew test --tests com.tovarika.tech.auth.AnalysisEditingIntegrationTest`.

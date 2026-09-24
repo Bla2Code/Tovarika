@@ -7,6 +7,8 @@ public interface AuthenticationRateLimiter {
     void check(Scope scope, String subject, AuthenticationProperties.RateLimit.Rule rule);
 
     enum Scope {
+        PRODUCT_ANALYSIS,
+        PRODUCT_UPLOAD,
         TRIAL_CREATE,
         LOGIN,
         REGISTER,
