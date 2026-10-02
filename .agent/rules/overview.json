@@ -79,7 +79,7 @@
       {
         "name": "images",
         "path": "src/main/java/com/tovarika/tech/images",
-        "responsibility": "OCP adapter/factory boundary for image generation and editing; ChatGPT adapter currently uses an explicit offline stub client."
+        "responsibility": "OCP adapter/factory boundary for image generation and editing; ChatGPT adapter supports offline stub and live OpenAI Responses API vision analysis."
       }
     ]
   },
@@ -131,6 +131,10 @@
     {
       "path": ".agent/rules/SECURITY.md",
       "purpose": "Обязательные правила расширения реализованного Authentication/Spring Security и написания security acceptance-тестов."
+    },
+    {
+      "path": ".agent/rules/OPENAI.md",
+      "purpose": "Обязательные правила настройки, защиты secret, локального и production-запуска и диагностики OpenAI API."
     },
     {
       "path": ".agent/rules/MIGRATIONS.md",
@@ -259,7 +263,8 @@
       ,
       "OPENAI_MODE",
       "OPENAI_BASE_URL",
-      "OPENAI_API_KEY",
+      "OPENAI_API_KEY_FILE",
+      "OPENAI_API_KEY_SOURCE",
       "OPENAI_IMAGE_MODEL",
       "OPENAI_VISION_MODEL",
       "ANALYSIS_WORKER_ENABLED"
@@ -286,5 +291,7 @@
     "Перед изменением authentication, authorization, cookies, CORS/CSRF, OAuth, sessions или protected endpoint обязательно применяется .agent/rules/SECURITY.md.",
     "Authentication security semantics проверяются на PostgreSQL 18 через Testcontainers; H2 для locking/concurrency не используется.",
     "JWT_SECRET_BASE64 не имеет значения по умолчанию и должен быть стабильным production secret длиной не менее 256 бит."
+    ,
+    "Перед изменением OpenAI client, prompt, models, Compose secrets или deployment flow обязательно применяется .agent/rules/OPENAI.md."
   ]
 }

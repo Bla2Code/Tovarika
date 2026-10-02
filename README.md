@@ -268,20 +268,30 @@ revision 1 и `analysis_ready`; ошибка сохраняет только с�
 а `ImageGeneratorFactory` использует Spring registry: новый адаптер достаточно объявить
 bean с новым именем, код фабрики и клиентского `ImageGenerationService` менять не нужно.
 
-Сейчас `OPENAI_MODE=stub` обязателен: `StubOpenAiClient` не выполняет сетевых запросов,
-анализ помечается `[STUB]`, а генерация возвращает placeholder PNG. Подготовлены переменные:
+По умолчанию используется `OPENAI_MODE=stub`: `StubOpenAiClient` не выполняет сетевых
+запросов, анализ помечается `[STUB]`, а генерация возвращает placeholder PNG.
+`OPENAI_MODE=live` включает анализ изображения через OpenAI Responses API со Structured
+Outputs. Prompt версии v1 хранится в `src/main/resources/prompts/product-analysis-v1.txt`;
+изображение передаётся как Base64 data URL с `detail=high`, а ответ строго содержит
+`title`, `description` и `idea`. Запрос использует `store=false`. Настройки runtime:
 
-- `OPENAI_API_KEY` — server-side API key, не передавать в UI и логи;
+- `OPENAI_API_KEY_FILE` — путь к server-side API key; Compose задаёт
+  `/run/secrets/openai_api_key` и монтирует одноимённый secret;
 - `OPENAI_BASE_URL` — по умолчанию `https://api.openai.com/v1`;
 - `OPENAI_VISION_MODEL` — модель Responses API для анализа исходного изображения;
 - `OPENAI_IMAGE_MODEL` — GPT Image model для generation/edit;
-- `OPENAI_MODE` — пока только `stub`; включать live до регистрации реального
-  `OpenAiClient` запрещено fail-fast проверкой.
+- `OPENAI_MODE` — `stub` или `live`; live требует доступный secret-файл и vision model.
 
-Реальный transport должен отправлять изображение анализа как `input_image` в Responses
-API и требовать структурированный результат title/description/idea. Генерация использует
-`POST /v1/images/generations`, редактирование — multipart `POST /v1/images/edits`.
-Размеры приложения нужно явно сопоставлять поддерживаемым API размерам, а base64-ответ
+В Compose значение ключа не передаётся через environment. Top-level secret
+`openai_api_key` читается из отдельного файла и появляется как read-only файл только
+внутри контейнера приложения. Локально путь можно задать через `OPENAI_API_KEY_SOURCE`;
+по умолчанию используется `../.secrets/openai_api_key` за пределами репозитория.
+Не сохраняйте ключ в `.env`, Compose YAML или репозитории.
+
+Live transport анализа отправляет изображение как `input_image` в Responses API и требует
+структурированный результат title/description/idea. Ошибки провайдера санитизируются и не
+содержат prompt, изображение, ключ или тело ответа. Live-генерация и редактирование
+изображений пока не реализованы и явно завершаются ошибкой; их будущие base64-ответы нужно
 валидировать тем же `ImageValidator`, что и пользовательские изображения. Актуальные
 форматы и модели проверяйте по официальной документации OpenAI:
 <https://developers.openai.com/api/docs/guides/images-vision> и

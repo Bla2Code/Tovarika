@@ -69,9 +69,10 @@ Trial bootstrap находится в `trial`: API → application/port → JDBC
 
 Асинхронный анализ находится в `analyses`: PostgreSQL job/lease/fencing, provider port и
 server-owned prompt разделены. В `images` находятся `ImageGenerator`, optional `ImageEditor`,
-registry factory и ChatGPT adapter. Production OpenAI transport пока отсутствует намеренно:
-`OPENAI_MODE=stub` не выполняет сеть. Не включай live mode без отдельного `OpenAiClient`,
-структурированной валидации ответа и integration-тестов на boundary.
+registry factory и ChatGPT adapter. Vision-анализ поддерживает offline `stub` и production
+`live` transport через OpenAI Responses API; Structured Outputs ограничивает результат.
+Перед изменением клиента, prompt, моделей, Compose secrets или deployment flow обязательно
+прочитай и соблюдай [OPENAI.md](OPENAI.md).
 
 GET/PATCH ProductAnalysis используют ту же Product ownership boundary. PATCH блокирует
 Product, изменяет только title/description/idea, всегда пересобирает server-owned prompt и
@@ -80,6 +81,8 @@ Product, изменяет только title/description/idea, всегда пе
 
 ## 6. Внешние интеграции
 
+- Настройка и диагностика OpenAI выполняются только по [OPENAI.md](OPENAI.md); API key
+  не хранится в environment контейнера, `.env`, Git или UI.
 - Работа с MinIO выполняется через инфраструктурный сервис или порт, а не напрямую из контроллера и домена.
 - Object key создаётся сервером; пользовательский путь или имя файла нельзя принимать как готовый ключ без нормализации.
 - Ошибки MinIO и других провайдеров преобразуются в ошибки приложения и не раскрывают внутренние детали клиенту.
