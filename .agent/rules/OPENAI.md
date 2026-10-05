@@ -1,7 +1,10 @@
 # Настройка OpenAI API
 
 Этот файл обязателен к прочтению перед изменением OpenAI-клиента, AI-конфигурации,
-prompt анализа товара, Compose secrets или deployment flow.
+prompt анализа товара, Compose secrets или deployment flow. Здесь описаны transport,
+настройка и безопасность интеграции; бизнес-логика анализа — [PRODUCT_ANALYSIS.md](PRODUCT_ANALYSIS.md),
+карточки — [CARD_GENERATION.md](CARD_GENERATION.md), prompt карточки — [CARD_PROMPTS.md](CARD_PROMPTS.md),
+AI-интерфейсы и нормализация изображений — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 
 ## 1. Текущая реализация
 
@@ -12,8 +15,11 @@ prompt анализа товара, Compose secrets или deployment flow.
   `src/main/resources/prompts/product-analysis-v1.txt`.
 - Ответ ограничен Structured Outputs-схемой с полями `title`, `description` и `idea`.
 - Запрос выполняется с `store=false`; ошибки провайдера санитизируются.
-- Live-генерация и редактирование изображений пока не реализованы.
-  `OPENAI_IMAGE_MODEL` зарезервирован для следующего этапа.
+- Live-генерация первой карточки реализована через Responses API с tool `image_generation`:
+  основная модель берётся из `OPENAI_VISION_MODEL`, image model — из `OPENAI_IMAGE_MODEL`.
+  Tool использует `action=edit` и исходное фото с необязательным reference шаблона.
+- Отдельный вызов `OpenAiClient.edit` и публичное редактирование области карточки
+  пока не реализованы; не смешивай их с генерацией на основе входных фото.
 
 Официальная документация:
 
@@ -41,15 +47,21 @@ OpenAI рекомендует хранить API key только на серв�
 
 | Переменная | Назначение | Значение Compose по умолчанию |
 | --- | --- | --- |
-| `OPENAI_MODE` | `stub` или `live` | `stub` |
+| `OPENAI_MODE` | `stub` или `live` | `live` |
 | `OPENAI_BASE_URL` | базовый URL API | `https://api.openai.com/v1` |
 | `OPENAI_API_KEY_FILE` | путь внутри контейнера | `/run/secrets/openai_api_key` |
 | `OPENAI_API_KEY_SOURCE` | локальный source-файл Compose secret | `../.secrets/openai_api_key` |
-| `OPENAI_VISION_MODEL` | модель Responses API для анализа | `gpt-6-luna` |
-| `OPENAI_IMAGE_MODEL` | будущая generation/edit модель | `gpt-image-2.5-sunburst` |
+| `OPENAI_VISION_MODEL` | модель Responses API для анализа и orchestration генерации | `gpt-6-luna` |
+| `OPENAI_IMAGE_MODEL` | модель tool генерации карточки | `gpt-image-2.5-sunburst` |
 
 `OPENAI_API_KEY_FILE` задаётся Compose напрямую. Значение ключа не является
 environment-переменной контейнера.
+
+Defaults режима и моделей взяты из текущих Compose-файлов, а не являются гарантией доступности модели
+у провайдера. Без Compose в `application.properties` режим по умолчанию `stub`,
+имена моделей и путь secret пустые. Production source secret — `./secrets/openai_api_key`.
+В live startup требует base URL, обе модели и доступный непустой secret-файл;
+base URL использует HTTPS (HTTP разрешён только для localhost/127.0.0.1 в тестах).
 
 ## 4. Локальная настройка оператором
 

@@ -2,6 +2,9 @@
 
 Бэкенд на Spring Boot с REST API, построенным по схеме contract-first, PostgreSQL, Liquibase и MinIO.
 
+Правила разработки и ссылки на отдельные модули: [RULES.md](.agent/rules/RULES.md).
+Поток генерации карточки и ограничения MVP: [CARD_GENERATION.md](.agent/rules/CARD_GENERATION.md).
+
 ## Требования
 
 - JDK 21;
@@ -213,8 +216,9 @@ cookie дают `401 TRIAL_SESSION_NOT_FOUND`. Новый лимит вмест�
 проекты используют этот общий resolver. Регистрация использует существующий транзакционный
 hook `AuthenticationStore.convertTrial`: переносит Product и доступ к связанным Project/Card,
 сохраняет счётчики, помечает session converted и очищает cookie. Если регистрация пришла с
-Bearer, trial-владелец не переносится неявно. ProductAnalysis и самостоятельный ownership
-Asset ещё не реализованы в backend; их будущая конвертация должна расширять этот же hook.
+Bearer, trial-владелец не переносится неявно. Доступ к реализованному ProductAnalysis
+следует за владельцем Product. Самостоятельный ownership Asset пока отсутствует;
+будущие независимые ownership-таблицы должны расширять этот же hook.
 
 Проверки bootstrap, expiry, rate limit, identity isolation, conversion и отсутствия raw token
 в логах входят в `AuthenticationContractIntegrationTest` и выполняются на PostgreSQL 18.
@@ -263,14 +267,15 @@ revision 1 и `analysis_ready`; ошибка сохраняет только с�
 `tovarika.analysis.operations` имеют только ограниченный tag `outcome`.
 
 Интеграция AI разделена на интерфейсы. `AnalysisProvider` отвечает за vision-анализ.
-`ImageGenerator.generate(prompt, width, height)` и необязательный `ImageEditor` отвечают
+`ImageGenerator.generate(GenerationRequest)` и необязательный `ImageEditor` отвечают
 за создание и редактирование изображений. `ChatGPTAdapter` реализует оба интерфейса,
 а `ImageGeneratorFactory` использует Spring registry: новый адаптер достаточно объявить
 bean с новым именем, код фабрики и клиентского `ImageGenerationService` менять не нужно.
 
-По умолчанию используется `OPENAI_MODE=stub`: `StubOpenAiClient` не выполняет сетевых
+Без Compose по умолчанию используется `OPENAI_MODE=stub`: `StubOpenAiClient` не выполняет сетевых
 запросов, анализ помечается `[STUB]`, а генерация возвращает placeholder PNG.
-`OPENAI_MODE=live` включает анализ изображения через OpenAI Responses API со Structured
+В текущих Compose-файлах режим по умолчанию — `live`.
+`OPENAI_MODE=live` включает анализ через Responses API со Structured
 Outputs. Prompt версии v1 хранится в `src/main/resources/prompts/product-analysis-v1.txt`;
 изображение передаётся как Base64 data URL с `detail=high`, а ответ строго содержит
 `title`, `description` и `idea`. Запрос использует `store=false`. Настройки runtime:
@@ -278,9 +283,9 @@ Outputs. Prompt версии v1 хранится в `src/main/resources/prompts/
 - `OPENAI_API_KEY_FILE` — путь к server-side API key; Compose задаёт
   `/run/secrets/openai_api_key` и монтирует одноимённый secret;
 - `OPENAI_BASE_URL` — по умолчанию `https://api.openai.com/v1`;
-- `OPENAI_VISION_MODEL` — модель Responses API для анализа исходного изображения;
-- `OPENAI_IMAGE_MODEL` — GPT Image model для generation/edit;
-- `OPENAI_MODE` — `stub` или `live`; live требует доступный secret-файл и vision model.
+- `OPENAI_VISION_MODEL` — модель Responses API для анализа и orchestration генерации;
+- `OPENAI_IMAGE_MODEL` — модель tool генерации карточки;
+- `OPENAI_MODE` — `stub` или `live`; live требует доступный secret-файл и обе модели.
 
 В Compose значение ключа не передаётся через environment. Top-level secret
 `openai_api_key` читается из отдельного файла и появляется как read-only файл только
@@ -290,9 +295,11 @@ Outputs. Prompt версии v1 хранится в `src/main/resources/prompts/
 
 Live transport анализа отправляет изображение как `input_image` в Responses API и требует
 структурированный результат title/description/idea. Ошибки провайдера санитизируются и не
-содержат prompt, изображение, ключ или тело ответа. Live-генерация и редактирование
-изображений пока не реализованы и явно завершаются ошибкой; их будущие base64-ответы нужно
-валидировать тем же `ImageValidator`, что и пользовательские изображения. Актуальные
+содержат prompt, изображение, ключ или тело ответа. Live-генерация первой карточки
+реализована через tool `image_generation`; результат декодируется через ImageIO,
+масштабируется и обрезается до целевого размера PNG. Отдельный live edit и публичное
+редактирование области пока не реализованы. Подробности — в
+[IMAGE_GENERATION.md](.agent/rules/IMAGE_GENERATION.md). Актуальные
 форматы и модели проверяйте по официальной документации OpenAI:
 <https://developers.openai.com/api/docs/guides/images-vision> и
 <https://developers.openai.com/api/docs/guides/image-generation>.
