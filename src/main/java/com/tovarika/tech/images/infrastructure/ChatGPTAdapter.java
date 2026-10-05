@@ -10,9 +10,18 @@ public class ChatGPTAdapter implements ImageGenerator, ImageEditor {
     private final OpenAiClient client;
     private final OpenAiProperties properties;
     public ChatGPTAdapter(OpenAiClient client,OpenAiProperties properties) { this.client=client;this.properties=properties; }
-    public GeneratedImage generate(String prompt,int width,int height) {
-        validate(prompt,width,height);
-        return client.generate(properties.imageModel(),prompt,width,height);
+    public GeneratedImage generate(GenerationRequest request) {
+        validate(request.prompt(),request.width(),request.height());
+        if (request.images().isEmpty() || request.images().size() > 2) {
+            throw new IllegalArgumentException("One or two input images are required");
+        }
+        for (var image : request.images()) {
+            if (image.bytes().length == 0 || image.bytes().length > 10485760
+                    || !java.util.Set.of("image/png","image/jpeg","image/webp").contains(image.mediaType())) {
+                throw new IllegalArgumentException("Unsupported input image");
+            }
+        }
+        return client.generate(properties.visionModel(),properties.imageModel(),request);
     }
     public GeneratedImage edit(byte[] original,String mediaType,String prompt,int width,int height) {
         validate(prompt,width,height);

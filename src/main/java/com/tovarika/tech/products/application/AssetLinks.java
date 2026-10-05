@@ -27,6 +27,9 @@ public class AssetLinks {
         return new Link(properties.publicBaseUrl().replaceAll("/$", "") + "/media/assets/" + id
                 + "?expires=" + expiry + "&signature=" + signature(id, expiry), Instant.ofEpochSecond(expiry));
     }
+    public String templatePlaceholderUrl() {
+        return properties.publicBaseUrl().replaceAll("/$", "") + "/media/template-placeholder.png";
+    }
     public void verify(String id, long expires, String signature) {
         if (expires <= clock.instant().getEpochSecond() || expires > clock.instant().plusSeconds(900).getEpochSecond()
                 || signature == null || !MessageDigest.isEqual(signature(id, expires).getBytes(StandardCharsets.UTF_8), signature.getBytes(StandardCharsets.UTF_8))) {

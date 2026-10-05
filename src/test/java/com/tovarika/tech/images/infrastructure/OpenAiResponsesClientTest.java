@@ -10,6 +10,10 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
+import java.util.List;
+import com.tovarika.tech.images.application.GenerationRequest;
+import com.tovarika.tech.templates.TemplatePlaceholder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.MediaType;
@@ -84,6 +88,37 @@ class OpenAiResponsesClientTest {
     }
 
     @Test
+    void sendsTwoReferencesThroughImageToolAndNormalizesRequestedRatio() throws IOException {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenAiResponsesClient client = client(builder);
+        String result = Base64.getEncoder().encodeToString(TemplatePlaceholder.png());
+        server.expect(requestTo("https://api.openai.test/v1/responses"))
+                .andExpect(jsonPath("$.model").value("vision-test"))
+                .andExpect(jsonPath("$.input[0].content[0].type").value("input_text"))
+                .andExpect(jsonPath("$.input[0].content[1].type").value("input_image"))
+                .andExpect(jsonPath("$.input[0].content[2].type").value("input_image"))
+                .andExpect(jsonPath("$.tools[0].type").value("image_generation"))
+                .andExpect(jsonPath("$.tools[0].model").value("image-test"))
+                .andExpect(jsonPath("$.tools[0].action").value("edit"))
+                .andExpect(jsonPath("$.tools[0].size").value("1024x1536"))
+                .andRespond(withSuccess("""
+                        {"status":"completed","output":[{"type":"image_generation_call","result":"%s"}]}
+                        """.formatted(result), MediaType.APPLICATION_JSON));
+        byte[] reference = TemplatePlaceholder.png();
+        var generated = client.generate("vision-test", "image-test", new GenerationRequest(
+                "Create a card", List.of(
+                        new GenerationRequest.InputImage(reference, "image/png", "product"),
+                        new GenerationRequest.InputImage(reference, "image/png", "template_reference")),
+                1024, 1280));
+
+        assertThat(generated.width()).isEqualTo(1024);
+        assertThat(generated.height()).isEqualTo(1280);
+        assertThat(generated.bytes()).isNotEmpty();
+        server.verify();
+    }
+
+    @Test
     void liveModeRequiresCredentialsAndModel() {
         var properties = new OpenAiProperties("live", "https://api.openai.com/v1", "", "", "");
 
@@ -97,7 +132,7 @@ class OpenAiResponsesClientTest {
         Path apiKeyFile = tempDir.resolve("openai_api_key");
         Files.writeString(apiKeyFile, "test-key\n");
         var properties = new OpenAiProperties(
-                "live", "https://api.openai.test/v1", apiKeyFile.toString(), "", "vision-test");
+                "live", "https://api.openai.test/v1", apiKeyFile.toString(), "image-test", "vision-test");
         return new OpenAiResponsesClient(properties,
                 new ProductAnalysisPrompt("Test product analysis prompt"), new ObjectMapper(), builder);
     }

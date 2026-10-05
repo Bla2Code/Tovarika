@@ -2,7 +2,12 @@ package com.tovarika.tech.images.infrastructure;
 
 import com.tovarika.tech.analyses.domain.AnalysisResult;
 import com.tovarika.tech.images.application.GeneratedImage;
+import com.tovarika.tech.images.application.GenerationRequest;
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -13,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import javax.imageio.ImageIO;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -74,8 +80,84 @@ public class OpenAiResponsesClient implements OpenAiClient {
     }
 
     @Override
-    public GeneratedImage generate(String model, String prompt, int width, int height) {
-        throw new UnsupportedOperationException("Live OpenAI image generation is not implemented");
+    public GeneratedImage generate(String mainModel, String imageModel, GenerationRequest request) {
+        validateGeneration(mainModel, imageModel, request);
+        List<Map<String, Object>> content = new java.util.ArrayList<>();
+        content.add(Map.of("type", "input_text", "text", request.prompt()));
+        for (GenerationRequest.InputImage image : request.images()) {
+            String dataUrl = "data:" + image.mediaType() + ";base64,"
+                    + Base64.getEncoder().encodeToString(image.bytes());
+            content.add(Map.of("type", "input_image", "image_url", dataUrl, "detail", "high"));
+        }
+        String requestId = "card-" + UUID.randomUUID();
+        String generationSize = request.width() == request.height()
+                ? "1024x1024" : request.width() > request.height() ? "1536x1024" : "1024x1536";
+        Map<String, Object> body = Map.of(
+                "model", mainModel,
+                "store", false,
+                "input", List.of(Map.of("role", "user", "content", content)),
+                "tools", List.of(Map.of(
+                        "type", "image_generation",
+                        "model", imageModel,
+                        "action", "edit",
+                        "size", generationSize,
+                        "quality", "auto")));
+        try {
+            String responseBody = client.post()
+                    .uri("/responses")
+                    .header("X-Client-Request-Id", requestId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(String.class);
+            JsonNode response = responseBody == null ? null : mapper.readTree(responseBody);
+            if (response == null || !"completed".equals(response.path("status").asText())) {
+                throw new IllegalArgumentException("OpenAI image response is incomplete");
+            }
+            JsonNode output = response.path("output");
+            if (output.isArray()) {
+                for (JsonNode item : output) {
+                    if ("image_generation_call".equals(item.path("type").asText())
+                            && item.path("result").isString()) {
+                        byte[] image = Base64.getDecoder().decode(item.path("result").asText());
+                        if (image.length == 0) throw new IllegalArgumentException("Empty image result");
+                        return normalize(image, request.width(), request.height());
+                    }
+                }
+            }
+            throw new IllegalArgumentException("OpenAI response has no generated image");
+        } catch (RestClientException | JacksonException | IllegalArgumentException failure) {
+            throw new IllegalStateException("OpenAI image generation request failed");
+        }
+    }
+
+    private GeneratedImage normalize(byte[] encoded, int targetWidth, int targetHeight) {
+        try {
+            BufferedImage source = ImageIO.read(new ByteArrayInputStream(encoded));
+            if (source == null) throw new IOException("Unsupported generated image");
+            double scale = Math.max((double) targetWidth / source.getWidth(),
+                    (double) targetHeight / source.getHeight());
+            int scaledWidth = (int) Math.ceil(source.getWidth() * scale);
+            int scaledHeight = (int) Math.ceil(source.getHeight() * scale);
+            BufferedImage scaled = new BufferedImage(scaledWidth, scaledHeight, BufferedImage.TYPE_INT_RGB);
+            var graphics = scaled.createGraphics();
+            try {
+                graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                graphics.drawImage(source, 0, 0, scaledWidth, scaledHeight, null);
+            } finally {
+                graphics.dispose();
+            }
+            int x = Math.max(0, (scaledWidth - targetWidth) / 2);
+            int y = Math.max(0, (scaledHeight - targetHeight) / 2);
+            BufferedImage cropped = scaled.getSubimage(x, y, targetWidth, targetHeight);
+            try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                ImageIO.write(cropped, "png", output);
+                return new GeneratedImage(output.toByteArray(), "image/png", targetWidth, targetHeight, false);
+            }
+        } catch (IOException failure) {
+            throw new IllegalArgumentException("Generated image cannot be decoded");
+        }
     }
 
     @Override
@@ -141,12 +223,29 @@ public class OpenAiResponsesClient implements OpenAiClient {
         }
     }
 
+    private void validateGeneration(String mainModel, String imageModel, GenerationRequest request) {
+        if (mainModel == null || mainModel.isBlank() || imageModel == null || imageModel.isBlank()
+                || request == null || request.prompt() == null || request.prompt().isBlank()
+                || request.prompt().length() > 8000 || request.images().isEmpty() || request.images().size() > 2
+                || request.width() <= 0 || request.height() <= 0
+                || request.width() > 3840 || request.height() > 3840) {
+            throw new IllegalArgumentException("Invalid OpenAI image generation request");
+        }
+        for (GenerationRequest.InputImage image : request.images()) {
+            if (image.bytes().length == 0 || image.bytes().length > 10_485_760
+                    || !SUPPORTED_MEDIA_TYPES.contains(image.mediaType())) {
+                throw new IllegalArgumentException("Invalid OpenAI input image");
+            }
+        }
+    }
+
     private static String validateConfigurationAndReadApiKey(OpenAiProperties properties) {
         if (properties.apiKeyFile() == null || properties.apiKeyFile().isBlank()
                 || properties.visionModel() == null || properties.visionModel().isBlank()
+                || properties.imageModel() == null || properties.imageModel().isBlank()
                 || properties.baseUrl() == null || properties.baseUrl().isBlank()) {
             throw new IllegalStateException(
-                    "OPENAI_API_KEY_FILE, OPENAI_VISION_MODEL and OPENAI_BASE_URL are required in live mode");
+                    "OPENAI_API_KEY_FILE, OPENAI_VISION_MODEL, OPENAI_IMAGE_MODEL and OPENAI_BASE_URL are required in live mode");
         }
         URI baseUrl;
         try {

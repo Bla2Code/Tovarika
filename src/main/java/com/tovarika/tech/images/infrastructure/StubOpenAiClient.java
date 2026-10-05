@@ -2,6 +2,7 @@ package com.tovarika.tech.images.infrastructure;
 
 import com.tovarika.tech.analyses.domain.AnalysisResult;
 import com.tovarika.tech.images.application.GeneratedImage;
+import com.tovarika.tech.images.application.GenerationRequest;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -19,8 +20,8 @@ import java.io.IOException;
 public class StubOpenAiClient implements OpenAiClient {
     public StubOpenAiClient(OpenAiProperties properties) {}
 
-    public GeneratedImage generate(String model, String prompt, int width, int height) {
-        return placeholder(width, height);
+    public GeneratedImage generate(String mainModel, String imageModel, GenerationRequest request) {
+        return placeholder(request.width(), request.height());
     }
 
     public GeneratedImage edit(String model, byte[] original, String mediaType, String prompt, int width, int height) {

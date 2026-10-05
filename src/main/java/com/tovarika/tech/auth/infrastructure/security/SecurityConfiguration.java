@@ -78,12 +78,15 @@ public class SecurityConfiguration {
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/products/*/analysis").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/products").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/v1/products/*", "/media/assets/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/products/*", "/media/assets/*", "/media/template-placeholder.png").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/projects").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/projects/*").permitAll()
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/projects/*").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/projects/*").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/projects/*/cards").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/projects/*/cards", "/api/v1/projects/*/cards/*").permitAll()
+                .requestMatchers(HttpMethod.PUT, "/api/v1/templates/*/favorite").permitAll()
                 .requestMatchers(
                         "/api/v1/auth/register",
                         "/api/v1/auth/login",
@@ -123,7 +126,7 @@ public class SecurityConfiguration {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(properties.cors().allowedOrigins());
         configuration.setAllowCredentials(true);
-        configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(java.util.List.of("Authorization", "Content-Type", "X-Request-Id", "Idempotency-Key"));
         configuration.setExposedHeaders(java.util.List.of("X-Request-Id"));
         configuration.setMaxAge(3600L);

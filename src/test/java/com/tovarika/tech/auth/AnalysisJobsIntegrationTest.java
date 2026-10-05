@@ -9,6 +9,7 @@ import com.tovarika.tech.analyses.application.*;
 import com.tovarika.tech.analyses.domain.*;
 import com.tovarika.tech.auth.application.*;
 import com.tovarika.tech.images.application.ImageGenerationService;
+import com.tovarika.tech.cards.CardGenerationWorker;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.Cookie;
 import java.time.Instant;
@@ -51,11 +52,14 @@ class AnalysisJobsIntegrationTest {
     @Autowired EmailAuthenticationService auth;
     @Autowired MeterRegistry metrics;
     @Autowired ImageGenerationService imageGeneration;
+    @Autowired CardGenerationWorker cardWorker;
+    @Autowired ProductUploadIntegrationTest.FakeStorage storage;
     MockMvc mvc;
     Cookie cookie;
     @BeforeEach void setup() throws Exception {
         jdbc.execute("truncate users,trial_sessions,assets,products,authentication_rate_limits,product_uploads cascade");
         provider.calls.set(0);provider.fail=false;provider.entered=null;provider.release=null;
+        storage.data.clear();
         mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
         cookie=mvc.perform(post("/api/v1/trial-session").header("Origin","https://ui.test"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getCookie("__Host-tovarika_trial");
@@ -162,14 +166,79 @@ class AnalysisJobsIntegrationTest {
     }
 
     @Test void chatGptFactoryUsesOfflineStubForGenerationAndEditing() throws Exception {
-        var generated=imageGeneration.generate("chatgpt","A clean product card",64,48);
+        var request=new com.tovarika.tech.images.application.GenerationRequest(
+                "A clean product card",
+                java.util.List.of(new com.tovarika.tech.images.application.GenerationRequest.InputImage(
+                        com.tovarika.tech.templates.TemplatePlaceholder.png(),"image/png","product")),64,48);
+        var generated=imageGeneration.generate("chatgpt",request);
         assertThat(generated.stub()).isTrue();
         assertThat(generated.mediaType()).isEqualTo("image/png");
         assertThat(generated.width()).isEqualTo(64);
         var edited=imageGeneration.edit("chatgpt",fixture(),"image/png","Keep the product unchanged",48,64);
         assertThat(edited.stub()).isTrue();
-        assertThatThrownBy(()->imageGeneration.generate("midjourney","prompt",64,64))
+        assertThatThrownBy(()->imageGeneration.generate("midjourney",request))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+    @Test void firstCardUsesTemplateReferenceFlowAndKeepsPromptInternal() throws Exception {
+        String product=product();
+        start(product,"analysis-for-card");
+        worker.runOnce();
+        jdbc.update("""
+                insert into templates(id,available,name,category_id,sort_order,recipe_json)
+                values('tpl_test_card',true,'Test template','cat_universal',999,
+                cast(? as jsonb))
+                """, "{\"schemaVersion\":1,\"scene\":\"clean studio\",\"composition\":\"centered\",\"lighting\":\"soft\",\"style\":\"minimal\",\"palette\":[\"#FFFFFF\"],\"avoid\":[\"text\"]}");
+        mvc.perform(get("/api/v1/templates"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].isFavorite").value(false));
+        mvc.perform(get("/api/v1/templates").param("favoriteOnly","true"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/v1/templates/tpl_test_card/favorite").cookie(cookie)
+                        .header("Origin","https://ui.test")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"favorite\":true}"))
+                .andExpect(status().isUnauthorized());
+        var projectResponse=mvc.perform(post("/api/v1/projects").cookie(cookie).header("Origin","https://ui.test")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":\""+product+"\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse();
+        String project=json.readTree(projectResponse.getContentAsString()).get("id").asString();
+        var started=mvc.perform(post("/api/v1/projects/"+project+"/cards").cookie(cookie)
+                        .header("Origin","https://ui.test").header("Idempotency-Key","first-card-key")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        // Previous UI builds send prompt and idea together with templateId.
+                        .content("{\"templateId\":\"tpl_test_card\",\"aspectRatio\":\"4:5\","
+                                + "\"prompt\":\"legacy prompt must be ignored\",\"idea\":\"legacy idea\"}"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.target.type").value("card"))
+                .andReturn().getResponse();
+        var operation=json.readTree(started.getContentAsString());
+        String job=operation.get("jobId").asString();
+        String card=operation.get("target").get("id").asString();
+        assertThat(cardWorker.runOnce()).isTrue();
+        mvc.perform(get("/api/v1/jobs/"+job).cookie(cookie))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("completed"));
+        var cardResponse=mvc.perform(get("/api/v1/projects/"+project+"/cards/"+card).cookie(cookie))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ready"))
+                .andExpect(jsonPath("$.aspectRatio").value("4:5"))
+                .andExpect(jsonPath("$.image.width").value(1024))
+                .andExpect(jsonPath("$.image.height").value(1280)).andReturn().getResponse();
+        assertThat(cardResponse.getContentAsString()).doesNotContain("prompt","idea","Test description");
+        String internal=jdbc.queryForObject("select prompt from cards where id=?",String.class,card);
+        assertThat(internal).contains("Test description")
+                .doesNotContain("Test title","Test idea","legacy prompt","legacy idea");
+    }
+
+    @Test void generateCardRequiresExactlyTemplateOrPrompt() throws Exception {
+        String product=product();start(product,"analysis-for-validation");worker.runOnce();
+        var projectResponse=mvc.perform(post("/api/v1/projects").cookie(cookie).header("Origin","https://ui.test")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":\""+product+"\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse();
+        String project=json.readTree(projectResponse.getContentAsString()).get("id").asString();
+        mvc.perform(post("/api/v1/projects/"+project+"/cards").cookie(cookie)
+                        .header("Origin","https://ui.test").header("Idempotency-Key","missing-source-key")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"aspectRatio\":\"3:4\"}"))
+                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder command(String product,String key) {
         return post("/api/v1/products/"+product+"/analysis").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key",key);
