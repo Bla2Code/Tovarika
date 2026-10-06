@@ -6,6 +6,7 @@ import com.tovarika.tech.images.application.GenerationRequest;
 import java.io.IOException;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.awt.Color;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.net.URI;
@@ -90,11 +91,18 @@ public class OpenAiResponsesClient implements OpenAiClient {
             content.add(Map.of("type", "input_image", "image_url", dataUrl, "detail", "high"));
         }
         String requestId = "card-" + UUID.randomUUID();
-        String generationSize = request.width() == request.height()
-                ? "1024x1024" : request.width() > request.height() ? "1536x1024" : "1024x1536";
+        String generationSize = generationSize(imageModel, request.width(), request.height());
         Map<String, Object> body = Map.of(
                 "model", mainModel,
                 "store", false,
+                "instructions", "Generate one complete product card on a " + generationSize + " canvas. "
+                        + "The final output is " + request.width() + "x" + request.height() + " pixels. "
+                        + "Adapt the reference layout to this canvas, preserving its visual hierarchy and alignment. "
+                        + "Fit the entire visible source product and all overlay text inside the canvas. "
+                        + "Keep at least 5% inset from each edge for the product, headings, feature text and badges. "
+                        + "Reduce font size, wrap long headings and reflow blocks as needed; never clip text or product details. "
+                        + "Balance the composition within the available space. The result will be proportionally fitted "
+                        + "and centered on the final canvas without cropping or stretching.",
                 "input", List.of(Map.of("role", "user", "content", content)),
                 "tools", List.of(Map.of(
                         "type", "image_generation",
@@ -131,28 +139,41 @@ public class OpenAiResponsesClient implements OpenAiClient {
         }
     }
 
+    private String generationSize(String imageModel, int width, int height) {
+        long pixels = (long) width * height;
+        boolean customSizeModel = imageModel.matches("gpt-image-(2|2\\.5-(sunburst|flare))(-\\d{4}-\\d{2}-\\d{2})?");
+        if (customSizeModel && width % 16 == 0 && height % 16 == 0
+                && Math.max(width, height) <= 3L * Math.min(width, height)
+                && pixels >= 655_360 && pixels <= 8_294_400) {
+            return width + "x" + height;
+        }
+        return width == height ? "1024x1024" : width > height ? "1536x1024" : "1024x1536";
+    }
+
     private GeneratedImage normalize(byte[] encoded, int targetWidth, int targetHeight) {
         try {
             BufferedImage source = ImageIO.read(new ByteArrayInputStream(encoded));
             if (source == null) throw new IOException("Unsupported generated image");
-            double scale = Math.max((double) targetWidth / source.getWidth(),
+            double scale = Math.min((double) targetWidth / source.getWidth(),
                     (double) targetHeight / source.getHeight());
-            int scaledWidth = (int) Math.ceil(source.getWidth() * scale);
-            int scaledHeight = (int) Math.ceil(source.getHeight() * scale);
-            BufferedImage scaled = new BufferedImage(scaledWidth, scaledHeight, BufferedImage.TYPE_INT_RGB);
-            var graphics = scaled.createGraphics();
+            int scaledWidth = Math.max(1, Math.min(targetWidth, (int) Math.round(source.getWidth() * scale)));
+            int scaledHeight = Math.max(1, Math.min(targetHeight, (int) Math.round(source.getHeight() * scale)));
+            int x = (targetWidth - scaledWidth) / 2;
+            int y = (targetHeight - scaledHeight) / 2;
+            BufferedImage canvas = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
+            var graphics = canvas.createGraphics();
             try {
+                // A neutral matte preserves the full card, including transparent pixels, without duplicating edge text.
+                graphics.setColor(Color.WHITE);
+                graphics.fillRect(0, 0, targetWidth, targetHeight);
                 graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                         RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                graphics.drawImage(source, 0, 0, scaledWidth, scaledHeight, null);
+                graphics.drawImage(source, x, y, scaledWidth, scaledHeight, null);
             } finally {
                 graphics.dispose();
             }
-            int x = Math.max(0, (scaledWidth - targetWidth) / 2);
-            int y = Math.max(0, (scaledHeight - targetHeight) / 2);
-            BufferedImage cropped = scaled.getSubimage(x, y, targetWidth, targetHeight);
             try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-                ImageIO.write(cropped, "png", output);
+                ImageIO.write(canvas, "png", output);
                 return new GeneratedImage(output.toByteArray(), "image/png", targetWidth, targetHeight, false);
             }
         } catch (IOException failure) {
