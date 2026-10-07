@@ -29,21 +29,48 @@ public class CardGenerationStore {
     }
 
     public ProjectGenerationContext lockProject(String projectId, String userId, String trialId) {
+        return projectContext(projectId, userId, trialId, true);
+    }
+
+    public ProjectGenerationContext readProject(String projectId, String userId, String trialId) {
+        return projectContext(projectId, userId, trialId, false);
+    }
+
+    private ProjectGenerationContext projectContext(String projectId, String userId, String trialId, boolean lock) {
         return jdbc.query("""
                 select j.id,j.product_id,j.card_count,p.status product_status,
-                       a.description,a.revision,s.storage_key source_storage_key,s.media_type source_media_type
+                       a.description,a.revision,s.storage_key source_storage_key,s.media_type source_media_type,
+                       j.selected_template_id,j.default_aspect_ratio,j.card_series_snapshot::text,
+                       first.template_id first_template_id,first.recipe_snapshot::text first_recipe,
+                       first.reference_asset_snapshot_id first_reference
                 from projects j join products p on p.id=j.product_id
                 left join product_analyses a on a.product_id=p.id
-                join assets s on s.id=p.source_asset_id
+                left join assets s on s.id=p.source_asset_id
+                left join cards first on first.project_id=j.id and first.position=1
                 where j.id=? and (p.owner_user_id=? or p.owner_trial_session_id=?)
-                for update of j,p
-                """, (result, row) -> new ProjectGenerationContext(
+                """ + (lock ? " for update of j,p" : ""), (result, row) -> new ProjectGenerationContext(
                         result.getString("id"), result.getString("product_id"), result.getInt("card_count"),
                         result.getString("product_status"), result.getString("description"),
                         (Integer) result.getObject("revision"), result.getString("source_storage_key"),
-                        result.getString("source_media_type")), projectId, userId, trialId)
+                        result.getString("source_media_type"), result.getString("selected_template_id"),
+                        result.getString("default_aspect_ratio"), result.getString("card_series_snapshot"),
+                        result.getString("first_template_id"), result.getString("first_recipe"),
+                        result.getString("first_reference")), projectId, userId, trialId)
                 .stream().findFirst().orElseThrow(() -> new com.tovarika.tech.shared.application.ApiFailure(
                         404, "PROJECT_NOT_FOUND", "Project not found"));
+    }
+
+    public boolean hasReference(String id) {
+        if (id == null) return false;
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists(select 1 from assets where id=? and storage_key is not null and media_type is not null)
+                """, Boolean.class, id));
+    }
+
+    public boolean busy(String projectId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists(select 1 from project_jobs where project_id=? and status in ('queued','processing'))
+                """, Boolean.class, projectId));
     }
 
     public Optional<CardGenerationJob> previous(String ownerScope, String key) {
@@ -62,24 +89,38 @@ public class CardGenerationStore {
         }
     }
 
-    public void enqueue(CardGenerationJob job, String templateId, String referenceAssetId, String ratio, String prompt,
-            String recipeJson, int analysisRevision, String ownerScope, String idempotencyKey, Instant now) {
+    public void enqueue(CardGenerationJob job, int position, String templateId, String referenceAssetId,
+            String ratio, String prompt, String recipeJson, String variantId, String variantJson, String idea,
+            String seriesJson, int analysisRevision, String description, String ownerScope,
+            String idempotencyKey, Instant now) {
         jdbc.update("""
                 insert into cards(id,project_id,position,status,aspect_ratio,template_id,prompt,idea,
-                                  recipe_snapshot,reference_asset_snapshot_id,analysis_revision,created_at,updated_at)
-                values(?, ?, 1, 'generating', ?, ?, ?, null, cast(? as jsonb), ?, ?, ?, ?)
-                """, job.cardId(), job.projectId(), ratio, templateId, prompt, recipeJson, referenceAssetId,
-                analysisRevision, Timestamp.from(now), Timestamp.from(now));
+                                  recipe_snapshot,reference_asset_snapshot_id,analysis_revision,
+                                  variant_id,variant_snapshot,analysis_description_snapshot,created_at,updated_at)
+                values(?, ?, ?, 'generating', ?, ?, ?, ?, cast(? as jsonb), ?, ?, ?, cast(? as jsonb), ?, ?, ?)
+                """, job.cardId(), job.projectId(), position, ratio, templateId, prompt, idea, recipeJson,
+                referenceAssetId, analysisRevision, variantId, variantJson, description,
+                Timestamp.from(now), Timestamp.from(now));
+        enqueueJob(job, ownerScope, idempotencyKey, now);
+        jdbc.update("""
+                update projects set card_count=card_count+1, selected_template_id=coalesce(?,selected_template_id),
+                    card_series_snapshot=coalesce(cast(? as jsonb),card_series_snapshot),
+                    default_aspect_ratio=?, updated_at=? where id=?
+                """, templateId, seriesJson, ratio, Timestamp.from(now), job.projectId());
+    }
+
+    public void retry(CardGenerationJob job, String ownerScope, String key, Instant now) {
+        jdbc.update("update cards set status='generating',error_code=null,updated_at=? where id=? and project_id=?",
+                Timestamp.from(now), job.cardId(), job.projectId());
+        enqueueJob(job, ownerScope, key, now);
+    }
+
+    private void enqueueJob(CardGenerationJob job, String ownerScope, String key, Instant now) {
         jdbc.update("""
                 insert into project_jobs(id,project_id,type,status,created_at,updated_at,card_id,
                                          owner_scope,idempotency_key,attempt)
                 values(?,?,'card_generation','queued',?,?,?,?,?,0)
-                """, job.id(), job.projectId(), Timestamp.from(now), Timestamp.from(now), job.cardId(),
-                ownerScope, idempotencyKey);
-        jdbc.update("""
-                update projects set card_count=1, selected_template_id=coalesce(?,selected_template_id), updated_at=?
-                where id=?
-                """, templateId, Timestamp.from(now), job.projectId());
+                """, job.id(), job.projectId(), Timestamp.from(now), Timestamp.from(now), job.cardId(), ownerScope, key);
     }
 
     public Optional<CardGenerationJob> ownedJob(String id, String userId, String trialId) {
@@ -191,7 +232,7 @@ public class CardGenerationStore {
         return new CardView(
                 result.getString("id"), result.getString("project_id"), result.getInt("position"),
                 result.getString("status"), result.getString("aspect_ratio"), result.getString("template_id"),
-                result.getString("error_code"), image, result.getTimestamp("created_at").toInstant(),
+                result.getString("error_code"), result.getString("variant_id"), result.getString("idea"), image, result.getTimestamp("created_at").toInstant(),
                 result.getTimestamp("updated_at").toInstant());
     }
 
@@ -202,7 +243,9 @@ public class CardGenerationStore {
 
     public record ProjectGenerationContext(
             String projectId, String productId, int cardCount, String productStatus,
-            String description, Integer analysisRevision, String sourceStorageKey, String sourceMediaType) {}
+            String description, Integer analysisRevision, String sourceStorageKey, String sourceMediaType,
+            String selectedTemplateId, String defaultAspectRatio, String seriesJson,
+            String firstTemplateId, String firstRecipe, String firstReference) {}
 
     public record GenerationSource(
             String prompt, String aspectRatio, String templateId, String sourceStorageKey,

@@ -85,7 +85,9 @@ use case или порт из этой карты.
 - Credentialed CORS использует только явный `tovarika.security.cors.allowed-origins`; wildcard запрещён.
 - CSRF отключён потому, что Bearer JWT не является ambient credential, а существующие cookie-authenticated
   mutations защищены strict Origin validation. Нельзя добавлять новый cookie-authenticated mutation, не расширив
-  эту модель и не задокументировав решение.
+  эту модель и не задокументировав решение. `POST /projects/{id}/cards` и
+  `POST /projects/{id}/cards/{cardId}/retry` входят в централизованную cardMutation policy;
+  GET next-draft использует тот же WorkspaceIdentityResolver и ownership проекта.
 
 ## 6. Как писать security-тесты
 

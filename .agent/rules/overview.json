@@ -4,7 +4,7 @@
     "artifact": "tovarika",
     "type": "backend",
     "description": "Backend-сервис платформы для создания и редактирования карточек товаров для маркетплейсов.",
-    "status": "Реализованы Authentication v1, trial workspace, загрузка Product, асинхронный анализ и его редактирование, CRUD проектов, каталог/избранное шаблонов и генерация первой карточки в stub/live. Regenerate, region edit, billing/quota и экспорт не реализованы."
+    "status": "Реализованы Authentication v1, trial workspace, загрузка Product, асинхронный анализ и его редактирование, CRUD проектов, каталог/избранное шаблонов и генерация серии до 10 карточек и retry failed Card в stub/live. Regenerate, region edit, billing/quota и экспорт не реализованы."
   },
   "technology": {
     "language": "Java 21",
@@ -79,7 +79,7 @@
       {
         "name": "images",
         "path": "src/main/java/com/tovarika/tech/images",
-        "responsibility": "ImageGenerator/optional ImageEditor и Spring registry; ChatGPT adapter поддерживает offline stub, live vision analysis и первую карточку через Responses image tool. Отдельный live edit не реализован."
+        "responsibility": "ImageGenerator/optional ImageEditor и Spring registry; ChatGPT adapter поддерживает offline stub, live vision analysis и карточки серии через Responses image tool. Отдельный live edit не реализован."
       },
       {
         "name": "templates",
@@ -89,11 +89,19 @@
       {
         "name": "cards",
         "path": "src/main/java/com/tovarika/tech/cards",
-        "responsibility": "First-card async generation, prompt compiler, transactional snapshots, PostgreSQL queue/lease/fencing и результат Asset; один запуск на проект в текущем MVP."
+        "responsibility": "Async generation позиции 1–10, read-only next-draft, scenario/idea/series/analysis snapshots, failed Card retry на прежней позиции, PostgreSQL queue/lease/fencing и результат Asset."
       }
     ]
   },
   "projectMap": [
+    {
+      "path": "docs/card-series-tasks.md",
+      "purpose": "Задачи серии карточек и критерии приёмки; реализация хранения, seed, API/backend и UI."
+    },
+    {
+      "path": "assets/templates/tpl_fashion_hero/card-variants.json",
+      "purpose": "Источник 10 сценариев для scripts/seed-card-variants.py; seed применяется новой data migration."
+    },
     {
       "path": "src/main/java/com/tovarika/tech",
       "purpose": "Ручной production-код приложения."
@@ -164,7 +172,7 @@
     },
     {
       "path": ".agent/rules/CARD_GENERATION.md",
-      "purpose": "Поток первой карточки, запуск/replay, worker, состояния, snapshots и ограничения MVP."
+      "purpose": "Серия позиций 1–10, next-draft, запуск/replay/retry, worker, snapshots и ограничения редактирования."
     },
     {
       "path": ".agent/rules/CARD_PROMPTS.md",
@@ -193,6 +201,14 @@
     {
       "path": ".agent/rules/TRIAL.md",
       "purpose": "Bootstrap/restore, Bearer-first identity, conversion и текущие границы quota."
+    },
+    {
+      "path": "scripts/seed-card-variants.py",
+      "purpose": "Проверка JSON и генерация нового immutable data changeset без подключения к БД."
+    },
+    {
+      "path": "src/test/java/com/tovarika/tech/cards",
+      "purpose": "PostgreSQL приёмка серии и обновления схемы с существующей первой Card."
     }
   ],
   "apiContract": {
@@ -336,7 +352,9 @@
     "testProductUpload": "./gradlew test --tests com.tovarika.tech.auth.ProductUploadIntegrationTest",
     "testAnalysisJobs": "./gradlew test --tests com.tovarika.tech.auth.AnalysisJobsIntegrationTest",
     "testAnalysisEditing": "./gradlew test --tests com.tovarika.tech.auth.AnalysisEditingIntegrationTest",
-    "testOpenAiBoundary": "./gradlew test --tests com.tovarika.tech.images.infrastructure.OpenAiResponsesClientTest"
+    "testOpenAiBoundary": "./gradlew test --tests com.tovarika.tech.images.infrastructure.OpenAiResponsesClientTest",
+    "checkCardVariants": "python3 scripts/seed-card-variants.py --check",
+    "testCardSeries": "./gradlew test --tests \"com.tovarika.tech.cards.*\""
   },
   "importantConstraints": [
     "Для сборки рядом должен находиться репозиторий tovarika-api-contract с подготовленным каталогом dist.",

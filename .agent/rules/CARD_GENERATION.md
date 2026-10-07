@@ -1,4 +1,4 @@
-# Генерация первой карточки товара
+# Генерация серии карточек товара
 
 Читай при изменении запуска карточки, очереди, worker, состояний и выдачи результата.
 Сборка текста запроса — [CARD_PROMPTS.md](CARD_PROMPTS.md),
@@ -10,7 +10,7 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 2. Запустить `POST /api/v1/products/{productId}/analysis`, опрашивать job,
    получить/проверить description ([PRODUCT_ANALYSIS.md](PRODUCT_ANALYSIS.md)).
 3. Создать проект для Product; это допустимо и до завершения анализа ([PROJECTS.md](PROJECTS.md)).
-4. Выбрать шаблон либо написать пользовательский prompt ([TEMPLATES.md](TEMPLATES.md)).
+4. Прочитать `GET /api/v1/projects/{projectId}/cards/next-draft` и выбрать шаблон/идею либо написать пользовательский prompt ([TEMPLATES.md](TEMPLATES.md)).
 5. `POST /api/v1/projects/{projectId}/cards` возвращает `202`, jobId, target Card
    и `pollAfterMs=1000`; HTTP-запрос не ждёт AI.
 6. Опрашивать `GET /api/v1/jobs/{id}`; после completed читать Card через
@@ -27,20 +27,21 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
   Чужой/отсутствующий проект даёт `404 PROJECT_NOT_FOUND`.
 - Обязателен `Idempotency-Key`: `[A-Za-z0-9._:-]{8,128}`. Контракт требует ровно один
   templateId/prompt и явный aspectRatio: `1:1`, `3:4`, `4:5`, `16:9`.
-- Совместимость контроллера со старым UI: при непустом templateId переданный вместе с ним
-  prompt отбрасывается. Сервис получает ровно один источник оформления;
-  не смешивай пользовательский текст с выбранным шаблоном.
+- Для шаблона передаются variantId из next-draft и необязательная idea (до 2000 символов).
+  Отсутствие идеи использует defaultIdea; явно пустая/пробельная идея отклоняется.
+  templateId и технический prompt одновременно запрещены. На первой позиции сохранена
+  совместимость с templateId без variantId; шаблон без сценариев допускает старую первую карточку.
 - Транзакция блокирует владельца, затем Project/Product. Повтор ключа в owner_scope
   возвращает исходную job для того же проекта; другой проект — `409 IDEMPOTENCY_CONFLICT`.
   Сравнения payload при replay сейчас нет. Replay проверяется до лимита карточек и анализа.
-- При card_count != 0 новый запуск даёт `409 CARD_LIMIT_EXCEEDED`.
+- После replay активная project job даёт `409 CARD_BUSY`; при card_count >= 10 — `409 CARD_LIMIT_EXCEEDED`.
   Нужен Product analysis_ready с непустым description и revision: иначе
   `409 RESULT_NOT_READY`, при analysis_failed — `409 ANALYSIS_FAILED`.
 - Недоступный/отсутствующий шаблон — `404 TEMPLATE_NOT_FOUND`; в live без reference metadata —
   `422 TEMPLATE_NOT_READY`. Проверка metadata не гарантирует наличие объекта в MinIO.
-- Одной транзакцией создаются Card (position=1, generating), project job (queued),
-  snapshots prompt/recipe/reference asset ID/analysis revision; card_count становится 1.
-  При шаблоне обновляется selected_template_id. Настройки проекта не подставляются
+- Одной транзакцией создаются Card (position=card_count+1, generating), project job (queued),
+  snapshots prompt/recipe/reference asset ID/analysis description/revision, вариант и окончательная idea; card_count увеличивается на 1.
+  При шаблоне обновляются selected_template_id и snapshot серии; сохраняется выбранный ratio. Настройки проекта не подставляются
   автоматически вместо параметров запроса.
 
 ## 3. Worker и результат
@@ -71,10 +72,11 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 
 ## 4. Границы MVP и правила изменения
 
-- Реализована только первая карточка. Regenerate, region edit и PATCH Card сейчас возвращают
+- Создание поддерживает позиции 1–10; произвольные Regenerate, region edit и PATCH Card возвращают
   `422 VALIDATION_ERROR`; контрактные возможности не означают готовую реализацию.
-- CardCollection.limit=10 — поле контракта; фактический MVP допускает один запуск.
-  Failed Card остаётся в проекте и занимает лимит; replay не перезапускает failed job.
+- Failed Card остаётся на своей позиции. `POST /cards/{cardId}/retry` создаёт новую job
+  для error Card с прежними snapshots, без увеличения card_count, включая лимит 10.
+  Replay не перезапускает failed job; ready Card даёт `CARD_RETRY_NOT_ALLOWED`.
 - Списание trial generations и billing/quota пока отсутствует.
 - Fencing защищает запись результата в БД, но не обеспечивает exactly-once вызов AI:
   после истечения lease возможен повторный запрос провайдеру.
@@ -84,5 +86,43 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
   и сериализацию с PATCH/DELETE по [PROJECTS.md](PROJECTS.md).
   Изменение шаблона/анализа после enqueue не меняет уже собранный prompt.
 - Проверяй компиляцию; при изменении AI boundary — проверки [OPENAI.md](OPENAI.md),
-  блокировок проекта — ProjectMutationsIntegrationTest на PostgreSQL. Отдельного
-  integration suite генерации карточек в текущем src/test нет.
+  блокировок проекта — ProjectMutationsIntegrationTest на PostgreSQL. Дополнительный
+  suite: `CardSeriesIntegrationTest`, обновление схемы: `CardSeriesMigrationTest`.
+
+## 5. Сценарии серии и форма
+
+[docs/card-series-tasks.md](../../docs/card-series-tasks.md) фиксирует согласованный
+порядок задач: 10 сценариев текущего шаблона → хранение → наполнение → API/backend → UI.
+Хранение — миграция 012; seed текущего шаблона — 013. UI находится в `/home/malexey/project/TovaricaUI`.
+
+- 10 вариантов включают первую обложку; в проекте максимум 10 Card.
+- Чтение следующей идеи и отмена формы не создают Card и не расходуют позицию.
+- Следующую позицию выбирает backend под блокировкой; сохраняй replay до busy/лимита.
+- Повтор failed generation должен создавать новую job для прежней Card, а не занимать
+  следующую позицию. Replay старого ключа по-прежнему не означает повтор генерации.
+- При enqueue сохраняй сценарий, окончательную идею и snapshots серии/анализа.
+  Изменение каталога, идеи в UI или стиля после enqueue не меняет текущую job.
+- Изменение выбранного стиля действует на новую и последующие карточки; готовые
+  карточки не пересобираются. Region edit остаётся отдельной задачей.
+
+- GET next-draft только читает (repeatable read, ownership, no-store): state ready,
+  limit_reached, variant_unavailable или template_required; поддерживаются все четыре ratio.
+  Параметр templateId меняет стиль формы без PATCH. Recipe/prompt/storage key не выдаются.
+- variantId проверяется по snapshot и текущей позиции: чужой ID — CARD_VARIANT_INVALID,
+  прежняя/другая позиция — CARD_DRAFT_STALE с требованием обновить форму; отсутствие
+  следующего сценария — CARD_VARIANT_UNAVAILABLE. Сценарии не выбираются циклически.
+- Series snapshot фиксируется только при enqueue. У legacy-проекта общий recipe/reference
+  берутся из первой Card; набор сценариев — из каталога. GET не записывает snapshot.
+- UI получает draft, сохраняет отредактированную idea при смене стиля, создаёт Card только
+  по кнопке «Создать карточку», показывает target сразу после 202 и опрашивает GET jobs.
+  Сетевой повтор сохраняет ключ и payload; новая операция/failed retry используют новый ключ.
+
+Приёмка UI на настоящем backend (внешние AI/storage — test boundaries):
+
+```sh
+TOVARIKA_UI_E2E=true TOVARIKA_UI_DIRECTORY=/path/to/TovaricaUI ./gradlew test --tests com.tovarika.tech.cards.CardSeriesBrowserIntegrationTest
+```
+
+Проверка запускает UI на localhost:5175, создаёт trial Product, анализ и первые две Card,
+проверяет отмену, сохранение идеи/ratio, polling и reload. Без флага cross-repository тест
+пропускается. Живое качество AI и применимость деталей проверяются отдельно по плану серии.

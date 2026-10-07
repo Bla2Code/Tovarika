@@ -23,3 +23,7 @@ databaseChangeLog:
       file: db/changelog/changes/010-template-catalog-and-first-card.yaml
   - include:
       file: db/changelog/changes/011-fashion-template-example.yaml
+  - include:
+      file: db/changelog/changes/012-card-series.yaml
+  - include:
+      file: db/changelog/changes/013-fashion-card-variants.yaml

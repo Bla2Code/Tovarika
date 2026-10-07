@@ -129,6 +129,19 @@ public class TemplateService {
                         result.getString("media_type")), id).stream().findFirst();
     }
 
+    @Transactional(readOnly = true)
+    public Optional<String> cardSeries(String templateId) {
+        return jdbc.query("""
+                select jsonb_build_object('templateId',t.id,'name',t.name,
+                    'referenceAssetId',t.reference_asset_id,'recipe',t.recipe_json,
+                    'variants',coalesce((select jsonb_agg(jsonb_build_object(
+                        'id',v.id,'position',v.position,'title',v.title,'defaultIdea',v.default_idea,
+                        'generationRecipe',v.generation_recipe) order by v.position)
+                        from template_card_variants v where v.template_id=t.id),'[]'::jsonb))::text
+                from templates t where t.id=? and t.available=true
+                """, (result, row) -> result.getString(1), templateId).stream().findFirst();
+    }
+
     private TemplateView map(ResultSet result, int row) throws SQLException {
         return new TemplateView(
                 result.getString("id"), result.getString("name"), result.getString("category_id"),

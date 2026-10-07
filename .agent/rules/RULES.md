@@ -13,6 +13,7 @@
 | Область задачи | Конкретный документ |
 | --- | --- |
 | Генерация карточки: запуск, состояния, worker, результат и ограничения MVP | [CARD_GENERATION.md](CARD_GENERATION.md) |
+| План реализации серии из 10 карточек, сценарии шаблона и новая форма UI | [docs/card-series-tasks.md](../../docs/card-series-tasks.md) |
 | Сборка prompt карточки, факты товара, текст и палитра reference | [CARD_PROMPTS.md](CARD_PROMPTS.md) |
 | Каталог, recipe и reference шаблонов | [TEMPLATES.md](TEMPLATES.md) |
 | AI-адаптеры, входные изображения и размеры результата | [IMAGE_GENERATION.md](IMAGE_GENERATION.md) |

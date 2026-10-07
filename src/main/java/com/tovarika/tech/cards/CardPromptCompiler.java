@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 @Component
 public class CardPromptCompiler {
@@ -58,6 +59,42 @@ public class CardPromptCompiler {
                 + "\nImage 1 is the source product. Preserve its identity, geometry, colors, labels and visible details."
                 + "\n" + layout()
                 + "\nReturn one finished marketplace product-card image. Do not invent price, brand, specifications or benefits.");
+    }
+
+    public String fromVariant(String description, String sharedRecipe, String variantRecipe, String idea, int position) {
+        JsonNode variant = mapper.readTree(variantRecipe);
+        if (!variant.isObject() || variant.path("schemaVersion").asInt() != 1
+                || !List.of("full_product", "detail").contains(variant.path("framingMode").asText())) {
+            throw new ApiFailure(422, "TEMPLATE_NOT_READY", "Variant recipe is invalid");
+        }
+        JsonNode shared = mapper.readTree(sharedRecipe);
+        if (!shared.isObject()) throw new ApiFailure(422, "TEMPLATE_NOT_READY", "Template recipe is invalid");
+        ObjectNode recipe = (ObjectNode) shared.deepCopy();
+        if (position > 1) recipe.put("composition", variant.path("composition").asText());
+        String prompt = fromTemplate(description, recipe.toString());
+        if (position > 1) {
+            prompt = prompt.replace(
+                    "Image 2 is a layout and style reference. Replace its demonstration product with the source product. Recompose the layout for the requested output ratio while preserving the reference alignment, relative placement and visual hierarchy.",
+                    "Image 2 defines the shared background, palette, typography, shapes and lighting only. Replace its demonstration product with Image 1. Replace the reference arrangement with the recommended scenario composition; do not retain the cover layout.")
+                    .replace(
+                    "Preserve the layout and visual hierarchy of any reference headings, feature text and badges.",
+                    "Use the selected style for headings, feature text and badges in the new composition.");
+            prompt = prompt.replace(layout(),
+                    "Default to showing the entire source product. A detail scenario or an explicit close-up in the final user idea may show only a genuinely discernible source fragment. "
+                    + "Never reconstruct invisible fibers, seams, labels or reverse views. When that detail is not discernible, use the fallback composition with the full product. "
+                    + "Fit the selected fragment or full product and all overlay text inside the canvas with at least 5% margins on every side. Wrap text and reflow blocks without clipping or stretching.");
+        }
+        List<String> sections = new ArrayList<>();
+        sections.add(prompt);
+        sections.add("Recommended framing: " + variant.path("framingMode").asText());
+        if (variant.path("conditions").isArray()) {
+            variant.path("conditions").forEach(condition -> add(sections, "Mandatory factual condition", condition));
+        }
+        add(sections, "Fallback composition when evidence is insufficient", variant.path("fallbackComposition"));
+        sections.add("Final user idea (visual direction, never a source of product facts): " + idea);
+        sections.add("The final user idea may override the recommended accent and arrangement. Preserve the shared style, source product identity and all factual conditions. "
+                + "Use only description and Image 1 as evidence; do not invent specifications, dimensions, materials, other views, color variants or sets.");
+        return checked(String.join("\n", sections));
     }
 
     private String base(String description) {

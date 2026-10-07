@@ -205,9 +205,7 @@ class AnalysisJobsIntegrationTest {
         var started=mvc.perform(post("/api/v1/projects/"+project+"/cards").cookie(cookie)
                         .header("Origin","https://ui.test").header("Idempotency-Key","first-card-key")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                        // Previous UI builds send prompt and idea together with templateId.
-                        .content("{\"templateId\":\"tpl_test_card\",\"aspectRatio\":\"4:5\","
-                                + "\"prompt\":\"legacy prompt must be ignored\",\"idea\":\"legacy idea\"}"))
+                        .content("{\"templateId\":\"tpl_test_card\",\"aspectRatio\":\"4:5\"}"))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.target.type").value("card"))
                 .andReturn().getResponse();
         var operation=json.readTree(started.getContentAsString());
@@ -221,7 +219,7 @@ class AnalysisJobsIntegrationTest {
                 .andExpect(jsonPath("$.aspectRatio").value("4:5"))
                 .andExpect(jsonPath("$.image.width").value(1024))
                 .andExpect(jsonPath("$.image.height").value(1280)).andReturn().getResponse();
-        assertThat(cardResponse.getContentAsString()).doesNotContain("prompt","idea","Test description");
+        assertThat(cardResponse.getContentAsString()).doesNotContain("prompt","recipe","Test description");
         String internal=jdbc.queryForObject("select prompt from cards where id=?",String.class,card);
         assertThat(internal).contains("Test description")
                 .doesNotContain("Test title","Test idea","legacy prompt","legacy idea");

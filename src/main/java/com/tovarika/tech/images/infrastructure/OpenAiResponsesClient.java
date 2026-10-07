@@ -97,8 +97,8 @@ public class OpenAiResponsesClient implements OpenAiClient {
                 "store", false,
                 "instructions", "Generate one complete product card on a " + generationSize + " canvas. "
                         + "The final output is " + request.width() + "x" + request.height() + " pixels. "
-                        + "Adapt the reference layout to this canvas, preserving its visual hierarchy and alignment. "
-                        + "Fit the entire visible source product and all overlay text inside the canvas. "
+                        + "Adapt the composition specified in the input prompt to this canvas, preserving its visual hierarchy and alignment. "
+                        + "Fit the entire visible source product and all overlay text inside the canvas unless the input prompt permits a discernible source detail close-up; then fit that selected fragment and all text. "
                         + "Keep at least 5% inset from each edge for the product, headings, feature text and badges. "
                         + "Reduce font size, wrap long headings and reflow blocks as needed; never clip text or product details. "
                         + "Balance the composition within the available space. The result will be proportionally fitted "

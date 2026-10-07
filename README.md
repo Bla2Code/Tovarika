@@ -295,7 +295,7 @@ Outputs. Prompt версии v1 хранится в `src/main/resources/prompts/
 
 Live transport анализа отправляет изображение как `input_image` в Responses API и требует
 структурированный результат title/description/idea. Ошибки провайдера санитизируются и не
-содержат prompt, изображение, ключ или тело ответа. Live-генерация первой карточки
+содержат prompt, изображение, ключ или тело ответа. Live-генерация карточек серии
 реализована через tool `image_generation`; результат декодируется через ImageIO,
 масштабируется и обрезается до целевого размера PNG. Отдельный live edit и публичное
 редактирование области пока не реализованы. Подробности — в
@@ -324,3 +324,12 @@ Product ownership, analysis id и createdAt не меняются. Конкур�
 по Product и не теряют изменения разных полей.
 
 Проверка: `./gradlew test --tests com.tovarika.tech.auth.AnalysisEditingIntegrationTest`.
+
+### Серия карточек
+
+`GET /api/v1/projects/{projectId}/cards/next-draft` возвращает следующую идею и сценарий;
+`POST .../cards` создаёт позиции 1–10 с templateId/variantId/idea/aspectRatio.
+`POST .../cards/{cardId}/retry` повторяет failed Card с прежними snapshots новой job.
+Источник сценариев и скрипт seed описаны в [scripts/README.md](scripts/README.md),
+runtime — в [.agent/rules/CARD_GENERATION.md](.agent/rules/CARD_GENERATION.md).
+UI: `/home/malexey/project/TovaricaUI`; API-контракт: `../tovarika-api-contract`.

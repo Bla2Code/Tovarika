@@ -10,6 +10,8 @@ public record CardView(
         String aspectRatio,
         String templateId,
         String errorCode,
+        String variantId,
+        String idea,
         CardAssetView image,
         Instant createdAt,
         Instant updatedAt) {}

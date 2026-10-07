@@ -47,5 +47,8 @@ GET jobs → JobsController → analyses / cards
   для карточек нужно отдельно подключить в вызывающем сценарии.
 - Не создавай вторую систему identity/session, очередь в JVM или обход
   `ImageGenerationService` прямым HTTP-запросом из контроллера.
+- Для формы продолжения серии используй [план задач](../../docs/card-series-tasks.md):
+  backend возвращает следующую пользовательскую идею, UI хранит несохранённый draft,
+  а backend собирает технический prompt и назначает позицию при enqueue.
 - Конвертация trial расширяет существующий `AuthenticationStore.convertTrial`;
   billing/quota не становятся claims JWT. См. [TRIAL.md](TRIAL.md), [SECURITY.md](SECURITY.md).
