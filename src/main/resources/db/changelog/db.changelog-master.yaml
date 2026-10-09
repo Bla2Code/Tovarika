@@ -31,3 +31,5 @@ databaseChangeLog:
       file: db/changelog/changes/014-card-image-editing.yaml
   - include:
       file: db/changelog/changes/015-card-image-redo.yaml
+  - include:
+      file: db/changelog/changes/016-card-exports.yaml

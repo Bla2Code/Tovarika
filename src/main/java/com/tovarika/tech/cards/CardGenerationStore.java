@@ -69,7 +69,7 @@ public class CardGenerationStore {
 
     public boolean busy(String projectId) {
         return Boolean.TRUE.equals(jdbc.queryForObject("""
-                select exists(select 1 from project_jobs where project_id=? and status in ('queued','processing'))
+                select exists(select 1 from project_jobs where project_id=? and type<>'export' and status in ('queued','processing'))
                 """, Boolean.class, projectId));
     }
 
@@ -220,10 +220,10 @@ public class CardGenerationStore {
                        a.width image_width,a.height image_height,a.created_at image_created_at,a.has_alpha image_has_alpha,
                        v.previous_version_id,
                        (v.previous_version_id is not null and not exists(select 1 from project_jobs q
-                           where q.project_id=c.project_id and q.status in ('queued','processing'))) can_undo,
+                           where q.project_id=c.project_id and q.type<>'export' and q.status in ('queued','processing'))) can_undo,
                        (exists(select 1 from card_image_redo_stack s where s.card_id=c.id)
                            and not exists(select 1 from project_jobs q
-                           where q.project_id=c.project_id and q.status in ('queued','processing'))) can_redo
+                           where q.project_id=c.project_id and q.type<>'export' and q.status in ('queued','processing'))) can_redo
                 from cards c join projects j on j.id=c.project_id join products p on p.id=j.product_id
                 left join assets a on a.id=c.image_asset_id
                 left join card_image_versions v on v.id=c.current_version_id

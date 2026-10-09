@@ -15,12 +15,25 @@ public class JobsController implements JobsApi {
     private final CardGenerationService cards;
     private final WorkspaceIdentityResolver identities;
     private final com.tovarika.tech.cards.editing.application.CardImageEditingService edits;
+    private final com.tovarika.tech.exports.ExportService exports;
     public JobsController(AnalysisService service,CardGenerationService cards,WorkspaceIdentityResolver identities,
-            com.tovarika.tech.cards.editing.application.CardImageEditingService edits) {
+            com.tovarika.tech.cards.editing.application.CardImageEditingService edits,
+            com.tovarika.tech.exports.ExportService exports) {
         this.service=service;this.cards=cards;this.identities=identities;this.edits=edits;
+        this.exports=exports;
     }
     public ResponseEntity<JobDto> getJob(String id) {
         var owner=identities.resolve();
+        var exportJob=exports.findJob(id,owner.userId());
+        if(exportJob.isPresent()) {
+            var job=exportJob.get();
+            var dto=new JobDto(job.id(),JobTypeDto.EXPORT,JobStatusDto.fromValue(job.status()),
+                    new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.EXPORT,job.exportId()),1000,job.createdAt().atOffset(ZoneOffset.UTC));
+            if(job.startedAt()!=null) dto.startedAt(job.startedAt().atOffset(ZoneOffset.UTC));
+            if(job.finishedAt()!=null) dto.finishedAt(job.finishedAt().atOffset(ZoneOffset.UTC));
+            if("failed".equals(job.status())) dto.failure(new JobFailureDto(ErrorCodeDto.EXPORT_FAILED,"Export failed","req_"+job.id()));
+            return ResponseEntity.ok().header("Cache-Control","no-store").body(dto);
+        }
         var editJob=edits.findJob(id,owner.userId(),owner.trialSessionId());
         if(editJob.isPresent()) {
             var job=editJob.get();
