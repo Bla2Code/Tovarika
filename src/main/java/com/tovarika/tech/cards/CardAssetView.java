@@ -8,4 +8,5 @@ public record CardAssetView(
         int sizeBytes,
         Integer width,
         Integer height,
-        Instant createdAt) {}
+        Instant createdAt,
+        Boolean hasAlpha) {}

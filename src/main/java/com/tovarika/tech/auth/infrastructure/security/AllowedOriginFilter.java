@@ -49,7 +49,7 @@ public class AllowedOriginFilter extends OncePerRequestFilter {
                 && !hasBearer(request) && hasTrialCookie(request);
         boolean cardMutation = HttpMethod.POST.matches(request.getMethod())
                 && (request.getRequestURI().matches("/api/v1/projects/[^/]+/cards")
-                    || request.getRequestURI().matches("/api/v1/projects/[^/]+/cards/[^/]+/retry"))
+                    || request.getRequestURI().matches("/api/v1/projects/[^/]+/cards/[^/]+/(retry|image-edits|region-edits|undo|redo)"))
                 && !hasBearer(request) && hasTrialCookie(request);
         return !authMutation && !trialConversion && !projectMutation && !productMutation && !cardMutation;
     }

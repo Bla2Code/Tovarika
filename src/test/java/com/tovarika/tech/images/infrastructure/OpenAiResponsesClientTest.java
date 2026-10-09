@@ -127,6 +127,45 @@ class OpenAiResponsesClientTest {
     }
 
     @Test
+    void editsCurrentBitmapWithMaskAndPreservesTransparentOutput() throws IOException {
+        RestClient.Builder builder=RestClient.builder();
+        MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();
+        OpenAiResponsesClient client=client(builder);
+        var raster=new BufferedImage(16,16,BufferedImage.TYPE_INT_ARGB);
+        raster.setRGB(1,1,0x80112233);
+        byte[] png=com.tovarika.tech.images.application.ImageRaster.png(raster);
+        String encoded=Base64.getEncoder().encodeToString(png);
+        server.expect(requestTo("https://api.openai.test/v1/responses"))
+                .andExpect(jsonPath("$.store").value(false))
+                .andExpect(jsonPath("$.input[0].content.length()").value(2))
+                .andExpect(jsonPath("$.input[0].content[0].text").value("Remove background"))
+                .andExpect(jsonPath("$.input[0].content[1].image_url").value("data:image/png;base64,"+encoded))
+                .andExpect(jsonPath("$.tools[0].action").value("edit"))
+                .andExpect(jsonPath("$.tools[0].background").value("transparent"))
+                .andExpect(jsonPath("$.tools[0].output_format").value("png"))
+                .andExpect(jsonPath("$.tools[0].input_image_mask.image_url").value("data:image/png;base64,"+encoded))
+                .andRespond(withSuccess("{\"status\":\"completed\",\"output\":[{\"type\":\"image_generation_call\",\"result\":\""+encoded+"\"}]}",MediaType.APPLICATION_JSON));
+        var result=client.edit("vision-test","image-test",new com.tovarika.tech.images.application.ImageEditInput(
+                png,"image/png","Remove background",16,16,png,true));
+        assertThat(com.tovarika.tech.images.application.ImageRaster.decode(result.bytes()).getRGB(1,1)>>>24).isEqualTo(128);
+        assertThat(result.width()).isEqualTo(16);assertThat(result.height()).isEqualTo(16);
+        server.verify();
+    }
+
+    @Test
+    void sanitizesIncompleteEditResponseWithoutProviderText() throws IOException {
+        RestClient.Builder builder=RestClient.builder();
+        MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();
+        OpenAiResponsesClient client=client(builder);
+        server.expect(requestTo("https://api.openai.test/v1/responses"))
+                .andRespond(withSuccess("{\"status\":\"failed\",\"private\":\"provider details\"}",MediaType.APPLICATION_JSON));
+        assertThatThrownBy(()->client.edit("vision-test","image-test",new com.tovarika.tech.images.application.ImageEditInput(
+                TemplatePlaceholder.png(),"image/png","Edit",16,16,new byte[0],false)))
+                .hasMessage("OpenAI image edit request failed").hasMessageNotContaining("provider details");
+        server.verify();
+    }
+
+    @Test
     void liveModeRequiresCredentialsAndModel() {
         var properties = new OpenAiProperties("live", "https://api.openai.com/v1", "", "", "");
 

@@ -14,4 +14,10 @@ public record CardView(
         String idea,
         CardAssetView image,
         Instant createdAt,
-        Instant updatedAt) {}
+        Instant updatedAt,
+        String currentVersionId,
+        String previousVersionId,
+        long imageRevision,
+        String lastImageJobId,
+        boolean canUndo,
+        boolean canRedo) {}

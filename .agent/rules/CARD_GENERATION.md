@@ -72,8 +72,8 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 
 ## 4. Границы MVP и правила изменения
 
-- Создание поддерживает позиции 1–10; произвольные Regenerate, region edit и PATCH Card возвращают
-  `422 VALIDATION_ERROR`; контрактные возможности не означают готовую реализацию.
+- Создание поддерживает позиции 1–10; произвольные Regenerate и PATCH Card возвращают
+  `422 VALIDATION_ERROR`. Bitmap edit/region/Undo реализованы отдельно по [IMAGE_EDITING.md](IMAGE_EDITING.md).
 - Failed Card остаётся на своей позиции. `POST /cards/{cardId}/retry` создаёт новую job
   для error Card с прежними snapshots, без увеличения card_count, включая лимит 10.
   Replay не перезапускает failed job; ready Card даёт `CARD_RETRY_NOT_ALLOWED`.
@@ -103,7 +103,7 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 - При enqueue сохраняй сценарий, окончательную идею и snapshots серии/анализа.
   Изменение каталога, идеи в UI или стиля после enqueue не меняет текущую job.
 - Изменение выбранного стиля действует на новую и последующие карточки; готовые
-  карточки не пересобираются. Region edit остаётся отдельной задачей.
+  карточки не пересобираются. Для изменения готового bitmap — [IMAGE_EDITING.md](IMAGE_EDITING.md).
 
 - GET next-draft только читает (repeatable read, ownership, no-store): state ready,
   limit_reached, variant_unavailable или template_required; поддерживаются все четыре ratio.

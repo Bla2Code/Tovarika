@@ -28,8 +28,12 @@ Secrets/startup/deployment — [OPENAI.md](OPENAI.md), worker — [CARD_GENERATI
   это не реализация публичного region edit.
 - Transport принимает completed response с Base64 image_generation_call.result,
   декодирует через ImageIO и нормализует в PNG. Ошибка не содержит provider body.
-- Отдельный OpenAiClient.edit в live бросает UnsupportedOperationException.
-  Не обещай edit только потому, что adapter реализует ImageEditor.
+- OpenAiClient.edit реализован для текущего bitmap: отдельный ImageEditInput с PNG alpha mask
+  и transparentBackground. Live использует action=edit, output_format=png; store=false.
+  Редактирование не использует Product/reference и generation layout instructions.
+  Нормализация edit сохраняет alpha и приводит размер ответа к исходному canvas.
+  Внешние pixels region и fitted content outpaint восстанавливаются backend compositing
+  по [IMAGE_EDITING.md](IMAGE_EDITING.md); семантическое качество ИИ mock не проверяет.
 
 ## 3. Размеры и нормализация
 

@@ -38,9 +38,11 @@ public class OpenAiResponsesClient implements OpenAiClient {
     private final ProductAnalysisPrompt prompt;
     private final ObjectMapper mapper;
     private final RestClient client;
+    private final String mainModel;
 
     public OpenAiResponsesClient(OpenAiProperties properties, ProductAnalysisPrompt prompt,
             ObjectMapper mapper, RestClient.Builder builder) {
+        this.mainModel = properties.visionModel();
         this.prompt = prompt;
         this.mapper = mapper;
         String apiKey = validateConfigurationAndReadApiKey(properties);
@@ -183,7 +185,59 @@ public class OpenAiResponsesClient implements OpenAiClient {
 
     @Override
     public GeneratedImage edit(String model, byte[] original, String mediaType, String prompt, int width, int height) {
-        throw new UnsupportedOperationException("Live OpenAI image editing is not implemented");
+        return edit(mainModel,model,new com.tovarika.tech.images.application.ImageEditInput(
+                original,mediaType,prompt,width,height,new byte[0],false));
+    }
+
+    @Override
+    public GeneratedImage edit(String mainModel,String imageModel,com.tovarika.tech.images.application.ImageEditInput input) {
+        if(mainModel==null || mainModel.isBlank() || imageModel==null || imageModel.isBlank()
+                || input.prompt()==null || input.prompt().isBlank() || input.prompt().length()>8000
+                || input.original().length==0 || input.original().length>10485760 || input.mask().length>10485760
+                || !SUPPORTED_MEDIA_TYPES.contains(input.mediaType()) || input.width()<=0 || input.height()<=0
+                || input.width()>3840 || input.height()>3840)
+            throw new IllegalArgumentException("Invalid image edit request");
+        var tool=new java.util.HashMap<String,Object>();
+        tool.put("type","image_generation"); tool.put("model",imageModel); tool.put("action","edit");
+        tool.put("size",generationSize(imageModel,input.width(),input.height()));
+        tool.put("output_format","png"); tool.put("background",input.transparentBackground()?"transparent":"auto");
+        if(input.mask().length>0) tool.put("input_image_mask",Map.of("image_url",
+                "data:image/png;base64,"+Base64.getEncoder().encodeToString(input.mask())));
+        Map<String,Object> body=Map.of("model",mainModel,"store",false,
+                "instructions","Edit the supplied complete image; it is the authoritative current version. "
+                        + "Apply only the requested change. Preserve the canvas alignment and all other content. "
+                        + "Do not rebuild a product card from scratch. Do not change typography or add elements unless requested. "
+                        + "Never add a matte when transparency is requested. "
+                        + "Output one image on the same " + input.width()+"x"+input.height()+" pixel canvas.",
+                "input",List.of(Map.of("role","user","content",List.of(
+                        Map.of("type","input_text","text",input.prompt()),
+                        Map.of("type","input_image","detail","high","image_url",
+                                "data:"+input.mediaType()+";base64,"+Base64.getEncoder().encodeToString(input.original()))))),
+                "tools",List.of(tool));
+        try {
+            String encoded=client.post().uri("/responses").header("X-Client-Request-Id","edit-"+UUID.randomUUID())
+                    .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class);
+            JsonNode response=encoded==null?null:mapper.readTree(encoded);
+            if(response==null || !"completed".equals(response.path("status").asText()))
+                throw new IllegalArgumentException("Incomplete edit result");
+            for(JsonNode item:response.path("output")) {
+                if("image_generation_call".equals(item.path("type").asText()) && item.path("result").isString()) {
+                    byte[] bytes=Base64.getDecoder().decode(item.path("result").asText());
+                    var raster=com.tovarika.tech.images.application.ImageRaster.decode(bytes);
+                    if(raster.getWidth()!=input.width() || raster.getHeight()!=input.height()) {
+                        var resized=new BufferedImage(input.width(),input.height(),BufferedImage.TYPE_INT_ARGB);
+                        var g=resized.createGraphics();
+                        try { g.drawImage(raster,0,0,input.width(),input.height(),null); } finally { g.dispose(); }
+                        raster=resized;
+                    }
+                    byte[] png=com.tovarika.tech.images.application.ImageRaster.png(raster);
+                    return new GeneratedImage(png,"image/png",raster.getWidth(),raster.getHeight(),false);
+                }
+            }
+            throw new IllegalArgumentException("No edited image");
+        } catch(RestClientException | JacksonException | IllegalArgumentException failure) {
+            throw new IllegalStateException("OpenAI image edit request failed");
+        }
     }
 
     private AnalysisResult parse(JsonNode response) throws JacksonException {

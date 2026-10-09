@@ -18,8 +18,9 @@ AI-интерфейсы и нормализация изображений — [
 - Live-генерация первой карточки реализована через Responses API с tool `image_generation`:
   основная модель берётся из `OPENAI_VISION_MODEL`, image model — из `OPENAI_IMAGE_MODEL`.
   Tool использует `action=edit` и исходное фото с необязательным reference шаблона.
-- Отдельный вызов `OpenAiClient.edit` и публичное редактирование области карточки
-  пока не реализованы; не смешивай их с генерацией на основе входных фото.
+- `OpenAiClient.edit` реализован через Responses image tool с текущим bitmap,
+  необязательной alpha mask и прозрачным PNG. Endpoint и версии — [IMAGE_EDITING.md](IMAGE_EDITING.md).
+  Не смешивай этот сценарий с генерацией на основе Product/reference.
 
 Официальная документация:
 

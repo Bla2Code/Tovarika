@@ -11,7 +11,7 @@ UI → products → analyses → project → cards
                                           images → OpenAiClient
 products / cards → ProductStorage → MinIO
 workspace API → WorkspaceIdentityResolver → auth / trial
-GET jobs → JobsController → analyses / cards
+GET jobs → JobsController → analyses / cards / cards.editing
 ```
 
 Порядок клиентских операций — [CARD_GENERATION.md](CARD_GENERATION.md).
@@ -52,3 +52,6 @@ GET jobs → JobsController → analyses / cards
   а backend собирает технический prompt и назначает позицию при enqueue.
 - Конвертация trial расширяет существующий `AuthenticationStore.convertTrial`;
   billing/quota не становятся claims JWT. См. [TRIAL.md](TRIAL.md), [SECURITY.md](SECURITY.md).
+
+Bitmap editing и Undo используют порты `ImageEditingStore`, `ImageGenerationService` и
+существующий ProductStorage; сценарий и инварианты — [IMAGE_EDITING.md](IMAGE_EDITING.md).

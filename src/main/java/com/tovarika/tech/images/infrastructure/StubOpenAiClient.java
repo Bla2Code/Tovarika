@@ -28,6 +28,17 @@ public class StubOpenAiClient implements OpenAiClient {
         return placeholder(width, height);
     }
 
+    public GeneratedImage edit(String mainModel,String imageModel,com.tovarika.tech.images.application.ImageEditInput input) {
+        if(!input.transparentBackground()) return placeholder(input.width(),input.height());
+        // Explicit offline fixture with transparent border; it does not perform semantic segmentation.
+        var image=new BufferedImage(input.width(),input.height(),BufferedImage.TYPE_INT_ARGB);
+        var g=image.createGraphics();
+        try { g.setColor(new Color(235,238,242));g.fillRect(input.width()/4,input.height()/4,
+                Math.max(1,input.width()/2),Math.max(1,input.height()/2)); }
+        finally { g.dispose(); }
+        return new GeneratedImage(com.tovarika.tech.images.application.ImageRaster.png(image),"image/png",input.width(),input.height(),true);
+    }
+
     public AnalysisResult analyze(String model, String operationId, byte[] original, String mediaType) {
         if (original == null || original.length == 0) throw new IllegalArgumentException("Source image is empty");
         return new AnalysisResult("[STUB] Товар", "[STUB] Демонстрационный анализ; содержимое изображения моделью не исследовано.",

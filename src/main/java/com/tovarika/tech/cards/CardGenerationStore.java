@@ -74,6 +74,11 @@ public class CardGenerationStore {
     }
 
     public Optional<CardGenerationJob> previous(String ownerScope, String key) {
+        if(Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists(select 1 from project_jobs where owner_scope=? and idempotency_key=? and type<>'card_generation')
+                    or exists(select 1 from card_image_history_receipts where owner_scope=? and idempotency_key=?)
+                """,Boolean.class,ownerScope,key,ownerScope,key)))
+            throw new com.tovarika.tech.shared.application.ApiFailure(409,"IDEMPOTENCY_CONFLICT","Key belongs to another command");
         return jdbc.query("""
                 select * from project_jobs where owner_scope=? and idempotency_key=?
                 order by created_at limit 1
@@ -121,6 +126,7 @@ public class CardGenerationStore {
                                          owner_scope,idempotency_key,attempt)
                 values(?,?,'card_generation','queued',?,?,?,?,?,0)
                 """, job.id(), job.projectId(), Timestamp.from(now), Timestamp.from(now), job.cardId(), ownerScope, key);
+        jdbc.update("update cards set last_image_job_id=? where id=?",job.id(),job.cardId());
     }
 
     public Optional<CardGenerationJob> ownedJob(String id, String userId, String trialId) {
@@ -167,8 +173,16 @@ public class CardGenerationStore {
                 values(?,'card_image',?,?,?,?, '',?,?)
                 """, asset.id(), asset.mediaType(), asset.sizeBytes(), asset.width(), asset.height(),
                 asset.storageKey(), Timestamp.from(now));
-        jdbc.update("update cards set status='ready',image_asset_id=?,updated_at=?,error_code=null where id=?",
-                asset.id(), Timestamp.from(now), job.cardId());
+        String versionId="ver_"+java.util.UUID.randomUUID().toString().replace("-","");
+        jdbc.update("update assets set has_alpha=false where id=?",asset.id());
+        jdbc.update("""
+                insert into card_image_versions(id,card_id,image_asset_id,aspect_ratio,created_at)
+                select ?,id,?,aspect_ratio,? from cards where id=?
+                """,versionId,asset.id(),Timestamp.from(now),job.cardId());
+        jdbc.update("""
+                update cards set status='ready',image_asset_id=?,current_version_id=?,image_revision=image_revision+1,
+                    updated_at=?,error_code=null where id=?
+                """,asset.id(),versionId,Timestamp.from(now),job.cardId());
         jdbc.update("""
                 update project_jobs set status='completed',finished_at=?,lease_until=null,updated_at=? where id=?
                 """, Timestamp.from(now), Timestamp.from(now), job.id());
@@ -203,9 +217,16 @@ public class CardGenerationStore {
     private String cardSelect() {
         return """
                 select c.*,a.id image_id,a.media_type image_media_type,a.size_bytes image_size_bytes,
-                       a.width image_width,a.height image_height,a.created_at image_created_at
+                       a.width image_width,a.height image_height,a.created_at image_created_at,a.has_alpha image_has_alpha,
+                       v.previous_version_id,
+                       (v.previous_version_id is not null and not exists(select 1 from project_jobs q
+                           where q.project_id=c.project_id and q.status in ('queued','processing'))) can_undo,
+                       (exists(select 1 from card_image_redo_stack s where s.card_id=c.id)
+                           and not exists(select 1 from project_jobs q
+                           where q.project_id=c.project_id and q.status in ('queued','processing'))) can_redo
                 from cards c join projects j on j.id=c.project_id join products p on p.id=j.product_id
                 left join assets a on a.id=c.image_asset_id
+                left join card_image_versions v on v.id=c.current_version_id
                 """;
     }
 
@@ -228,12 +249,14 @@ public class CardGenerationStore {
         CardAssetView image = assetId == null ? null : new CardAssetView(
                 assetId, result.getString("image_media_type"), result.getInt("image_size_bytes"),
                 (Integer) result.getObject("image_width"), (Integer) result.getObject("image_height"),
-                result.getTimestamp("image_created_at").toInstant());
+                result.getTimestamp("image_created_at").toInstant(), (Boolean)result.getObject("image_has_alpha"));
         return new CardView(
                 result.getString("id"), result.getString("project_id"), result.getInt("position"),
                 result.getString("status"), result.getString("aspect_ratio"), result.getString("template_id"),
                 result.getString("error_code"), result.getString("variant_id"), result.getString("idea"), image, result.getTimestamp("created_at").toInstant(),
-                result.getTimestamp("updated_at").toInstant());
+                result.getTimestamp("updated_at").toInstant(), result.getString("current_version_id"),
+                result.getString("previous_version_id"),result.getLong("image_revision"),result.getString("last_image_job_id"),
+                result.getBoolean("can_undo"),result.getBoolean("can_redo"));
     }
 
     private Instant instant(ResultSet result, String field) throws SQLException {

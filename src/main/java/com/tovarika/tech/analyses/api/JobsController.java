@@ -14,11 +14,28 @@ public class JobsController implements JobsApi {
     private final AnalysisService service;
     private final CardGenerationService cards;
     private final WorkspaceIdentityResolver identities;
-    public JobsController(AnalysisService service,CardGenerationService cards,WorkspaceIdentityResolver identities) {
-        this.service=service;this.cards=cards;this.identities=identities;
+    private final com.tovarika.tech.cards.editing.application.CardImageEditingService edits;
+    public JobsController(AnalysisService service,CardGenerationService cards,WorkspaceIdentityResolver identities,
+            com.tovarika.tech.cards.editing.application.CardImageEditingService edits) {
+        this.service=service;this.cards=cards;this.identities=identities;this.edits=edits;
     }
     public ResponseEntity<JobDto> getJob(String id) {
         var owner=identities.resolve();
+        var editJob=edits.findJob(id,owner.userId(),owner.trialSessionId());
+        if(editJob.isPresent()) {
+            var job=editJob.get();
+            var dto=new JobDto(job.id(),JobTypeDto.fromValue(job.type()),JobStatusDto.fromValue(job.status()),
+                    new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD,job.cardId()),1000,
+                    job.createdAt().atOffset(ZoneOffset.UTC));
+            dto.baseVersionId(job.baseVersionId());
+            dto.progress(switch(job.status()) {case "queued"->0;case "processing"->10;case "completed"->100;default->null;});
+            if(job.startedAt()!=null) dto.startedAt(job.startedAt().atOffset(ZoneOffset.UTC));
+            if(job.finishedAt()!=null) dto.finishedAt(job.finishedAt().atOffset(ZoneOffset.UTC));
+            if(job.resultVersionId()!=null) dto.result(new ImageJobResultDto(job.resultVersionId(),job.resultAssetId(),job.resultRevision()));
+            if("failed".equals(job.status())) dto.failure(new JobFailureDto(ErrorCodeDto.fromValue(job.failureCode()),
+                    "Image edit failed","req_"+job.id()));
+            return ResponseEntity.ok().header("Cache-Control","no-store").body(dto);
+        }
         var cardJob=cards.findJob(id,owner.userId(),owner.trialSessionId());
         if (cardJob.isPresent()) {
             var job=cardJob.get();

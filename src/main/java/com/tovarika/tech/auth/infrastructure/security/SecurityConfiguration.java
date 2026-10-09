@@ -85,7 +85,9 @@ public class SecurityConfiguration {
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/projects/*").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/projects/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/projects/*/cards").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/v1/projects/*/cards/*/retry").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/projects/*/cards/*/retry",
+                        "/api/v1/projects/*/cards/*/image-edits", "/api/v1/projects/*/cards/*/region-edits",
+                        "/api/v1/projects/*/cards/*/undo", "/api/v1/projects/*/cards/*/redo").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/projects/*/cards", "/api/v1/projects/*/cards/*").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/v1/templates/*/favorite").permitAll()
                 .requestMatchers(

@@ -30,6 +30,13 @@ public class ChatGPTAdapter implements ImageGenerator, ImageEditor {
             throw new IllegalArgumentException("Unsupported source image");
         return client.edit(properties.imageModel(),original,mediaType,prompt,width,height);
     }
+    public GeneratedImage edit(ImageEditInput input) {
+        validate(input.prompt(),input.width(),input.height());
+        if(input.original().length==0 || input.original().length>10485760 || input.mask().length>10485760
+                || !java.util.Set.of("image/png","image/jpeg","image/webp").contains(input.mediaType()))
+            throw new IllegalArgumentException("Unsupported source image or mask");
+        return client.edit(properties.visionModel(),properties.imageModel(),input);
+    }
     private void validate(String prompt,int width,int height) {
         if (prompt==null || prompt.isBlank() || prompt.length()>8000 || width<=0 || height<=0
                 || width>4096 || height>4096 || (long)width*height>8_388_608)

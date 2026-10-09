@@ -11,6 +11,9 @@ public class ImageGenerationService {
         ImageGenerator generator=factory.create(provider);
         return generator.generate(request);
     }
+    public GeneratedImage edit(String provider, ImageEditInput input) {
+        return factory.editor(provider).edit(input);
+    }
     public GeneratedImage edit(String provider, byte[] original, String mediaType, String prompt, int width, int height) {
         return factory.editor(provider).edit(original,mediaType,prompt,width,height);
     }
