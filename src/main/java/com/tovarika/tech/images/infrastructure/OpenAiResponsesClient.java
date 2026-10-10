@@ -26,6 +26,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -33,6 +34,19 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 @ConditionalOnProperty(name = "tovarika.ai.openai.mode", havingValue = "live")
 public class OpenAiResponsesClient implements OpenAiClient {
+    /** Only fixed diagnostic categories leave the provider boundary; response text stays private. */
+    public static final class ImageEditFailure extends IllegalStateException {
+        public enum Reason { HTTP_ERROR, TRANSPORT_ERROR, INVALID_RESPONSE, INCOMPLETE_RESPONSE, NO_IMAGE_RESULT, INVALID_IMAGE_RESULT }
+        private final Reason reason;
+        private final Integer httpStatus;
+        private ImageEditFailure(Reason reason, Integer httpStatus) {
+            super("OpenAI image edit request failed");
+            this.reason = reason;
+            this.httpStatus = httpStatus;
+        }
+        public Reason reason() { return reason; }
+        public Integer httpStatus() { return httpStatus; }
+    }
     private static final long MAX_API_KEY_BYTES = 8_192;
     private static final Set<String> SUPPORTED_MEDIA_TYPES = Set.of("image/png", "image/jpeg", "image/webp");
     private final ProductAnalysisPrompt prompt;
@@ -106,6 +120,7 @@ public class OpenAiResponsesClient implements OpenAiClient {
                         + "Balance the composition within the available space. The result will be proportionally fitted "
                         + "and centered on the final canvas without cropping or stretching.",
                 "input", List.of(Map.of("role", "user", "content", content)),
+                "tool_choice", Map.of("type", "image_generation"),
                 "tools", List.of(Map.of(
                         "type", "image_generation",
                         "model", imageModel,
@@ -213,13 +228,14 @@ public class OpenAiResponsesClient implements OpenAiClient {
                         Map.of("type","input_text","text",input.prompt()),
                         Map.of("type","input_image","detail","high","image_url",
                                 "data:"+input.mediaType()+";base64,"+Base64.getEncoder().encodeToString(input.original()))))),
+                "tool_choice",Map.of("type","image_generation"),
                 "tools",List.of(tool));
         try {
             String encoded=client.post().uri("/responses").header("X-Client-Request-Id","edit-"+UUID.randomUUID())
                     .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class);
             JsonNode response=encoded==null?null:mapper.readTree(encoded);
             if(response==null || !"completed".equals(response.path("status").asText()))
-                throw new IllegalArgumentException("Incomplete edit result");
+                throw new ImageEditFailure(ImageEditFailure.Reason.INCOMPLETE_RESPONSE, null);
             for(JsonNode item:response.path("output")) {
                 if("image_generation_call".equals(item.path("type").asText()) && item.path("result").isString()) {
                     byte[] bytes=Base64.getDecoder().decode(item.path("result").asText());
@@ -234,9 +250,15 @@ public class OpenAiResponsesClient implements OpenAiClient {
                     return new GeneratedImage(png,"image/png",raster.getWidth(),raster.getHeight(),false);
                 }
             }
-            throw new IllegalArgumentException("No edited image");
-        } catch(RestClientException | JacksonException | IllegalArgumentException failure) {
-            throw new IllegalStateException("OpenAI image edit request failed");
+            throw new ImageEditFailure(ImageEditFailure.Reason.NO_IMAGE_RESULT, null);
+        } catch(RestClientResponseException failure) {
+            throw new ImageEditFailure(ImageEditFailure.Reason.HTTP_ERROR, failure.getStatusCode().value());
+        } catch(RestClientException failure) {
+            throw new ImageEditFailure(ImageEditFailure.Reason.TRANSPORT_ERROR, null);
+        } catch(JacksonException failure) {
+            throw new ImageEditFailure(ImageEditFailure.Reason.INVALID_RESPONSE, null);
+        } catch(IllegalArgumentException failure) {
+            throw new ImageEditFailure(ImageEditFailure.Reason.INVALID_IMAGE_RESULT, null);
         }
     }
 

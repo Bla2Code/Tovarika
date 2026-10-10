@@ -2,14 +2,18 @@ package com.tovarika.tech.cards.editing.application;
 
 import com.tovarika.tech.cards.editing.domain.ImageEdit;
 import com.tovarika.tech.products.application.ProductStorage;
+import com.tovarika.tech.images.infrastructure.OpenAiResponsesClient.ImageEditFailure;
 import java.time.Clock;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class CardImageEditingWorker {
+    private static final Logger log = LoggerFactory.getLogger(CardImageEditingWorker.class);
     private final ImageEditingStore store;
     private final ProductStorage storage;
     private final CardImageProcessor processor;
@@ -35,6 +39,10 @@ public class CardImageEditingWorker {
             if(!Boolean.TRUE.equals(transactions.execute(tx->store.complete(job,output,clock.instant())))) delete(key);
         } catch(RuntimeException failure) {
             if(key!=null) delete(key);
+            if (failure instanceof ImageEditFailure providerFailure)
+                log.warn("Card image edit failed: job={}, reason={}, providerStatus={}",
+                        job.id(), providerFailure.reason(), providerFailure.httpStatus());
+            else log.warn("Card image edit failed: job={}, exceptionType={}", job.id(), failure.getClass().getSimpleName());
             String code=failure instanceof UnsupportedOperationException?"IMAGE_EDIT_UNAVAILABLE":"GENERATION_FAILED";
             transactions.executeWithoutResult(tx->store.fail(job,code,clock.instant()));
         }

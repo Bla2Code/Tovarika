@@ -109,6 +109,7 @@ class OpenAiResponsesClientTest {
                 .andExpect(jsonPath("$.tools[0].type").value("image_generation"))
                 .andExpect(jsonPath("$.tools[0].model").value("image-test"))
                 .andExpect(jsonPath("$.tools[0].action").value("edit"))
+                .andExpect(jsonPath("$.tool_choice.type").value("image_generation"))
                 .andExpect(jsonPath("$.tools[0].size").value("1024x1536"))
                 .andRespond(withSuccess("""
                         {"status":"completed","output":[{"type":"image_generation_call","result":"%s"}]}
@@ -142,6 +143,7 @@ class OpenAiResponsesClientTest {
                 .andExpect(jsonPath("$.input[0].content[1].image_url").value("data:image/png;base64,"+encoded))
                 .andExpect(jsonPath("$.tools[0].action").value("edit"))
                 .andExpect(jsonPath("$.tools[0].background").value("transparent"))
+                .andExpect(jsonPath("$.tool_choice.type").value("image_generation"))
                 .andExpect(jsonPath("$.tools[0].output_format").value("png"))
                 .andExpect(jsonPath("$.tools[0].input_image_mask.image_url").value("data:image/png;base64,"+encoded))
                 .andRespond(withSuccess("{\"status\":\"completed\",\"output\":[{\"type\":\"image_generation_call\",\"result\":\""+encoded+"\"}]}",MediaType.APPLICATION_JSON));
@@ -162,6 +164,44 @@ class OpenAiResponsesClientTest {
         assertThatThrownBy(()->client.edit("vision-test","image-test",new com.tovarika.tech.images.application.ImageEditInput(
                 TemplatePlaceholder.png(),"image/png","Edit",16,16,new byte[0],false)))
                 .hasMessage("OpenAI image edit request failed").hasMessageNotContaining("provider details");
+        server.verify();
+    }
+
+    @Test
+    void diagnosesCompletedTextOnlyEditWithoutExposingProviderText() throws IOException {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenAiResponsesClient client = client(builder);
+        server.expect(requestTo("https://api.openai.test/v1/responses"))
+                .andExpect(jsonPath("$.tool_choice.type").value("image_generation"))
+                .andRespond(withSuccess("{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"provider details\"}]}]}", MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> client.edit("vision-test", "image-test", new com.tovarika.tech.images.application.ImageEditInput(
+                TemplatePlaceholder.png(), "image/png", "Redraw the card in a different layout", 16, 16, new byte[0], false)))
+                .isInstanceOf(OpenAiResponsesClient.ImageEditFailure.class)
+                .hasMessage("OpenAI image edit request failed").hasNoCause()
+                .extracting(failure -> ((OpenAiResponsesClient.ImageEditFailure) failure).reason())
+                .isEqualTo(OpenAiResponsesClient.ImageEditFailure.Reason.NO_IMAGE_RESULT);
+        server.verify();
+    }
+
+    @Test
+    void diagnosesProviderHttpStatusWithoutExposingItsErrorBody() throws IOException {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenAiResponsesClient client = client(builder);
+        server.expect(requestTo("https://api.openai.test/v1/responses"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(org.springframework.http.HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON).body("{\"error\":{\"message\":\"provider details\"}}"));
+        assertThatThrownBy(() -> client.edit("vision-test", "image-test", new com.tovarika.tech.images.application.ImageEditInput(
+                TemplatePlaceholder.png(), "image/png", "Redraw the card in a different layout", 16, 16, new byte[0], false)))
+                .isInstanceOf(OpenAiResponsesClient.ImageEditFailure.class)
+                .hasMessage("OpenAI image edit request failed").hasNoCause()
+                .satisfies(failure -> {
+                    var diagnostic = (OpenAiResponsesClient.ImageEditFailure) failure;
+                    assertThat(diagnostic.reason()).isEqualTo(OpenAiResponsesClient.ImageEditFailure.Reason.HTTP_ERROR);
+                    assertThat(diagnostic.httpStatus()).isEqualTo(400);
+                });
         server.verify();
     }
 
