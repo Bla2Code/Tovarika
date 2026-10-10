@@ -1,0 +1,27 @@
+databaseChangeLog:
+  - changeSet:
+      id: 012-card-series
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE TABLE template_card_variants (
+                  id varchar(40) PRIMARY KEY,
+                  template_id varchar(40) NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+                  position integer NOT NULL CHECK (position BETWEEN 1 AND 10),
+                  title varchar(200) NOT NULL CHECK (length(trim(title)) > 0),
+                  default_idea varchar(2000) NOT NULL CHECK (length(trim(default_idea)) > 0),
+                  generation_recipe jsonb NOT NULL CHECK (coalesce((
+                      jsonb_typeof(generation_recipe) = 'object'
+                      AND generation_recipe->>'schemaVersion' = '1'
+                      AND generation_recipe->>'framingMode' IN ('full_product', 'detail')
+                  ), false)),
+                  UNIQUE (template_id, position)
+              );
+              ALTER TABLE projects ADD COLUMN card_series_snapshot jsonb
+                  CHECK (card_series_snapshot IS NULL OR jsonb_typeof(card_series_snapshot) = 'object');
+              ALTER TABLE cards ADD COLUMN variant_id varchar(40);
+              -- Historical IDs and snapshots survive subsequent catalog replacement/deletion.
+              ALTER TABLE cards ADD COLUMN variant_snapshot jsonb;
+              ALTER TABLE cards ADD COLUMN analysis_description_snapshot text;

@@ -19,3 +19,17 @@ databaseChangeLog:
       file: db/changelog/changes/008-product-upload.yaml
   - include:
       file: db/changelog/changes/009-product-analysis-jobs.yaml
+  - include:
+      file: db/changelog/changes/010-template-catalog-and-first-card.yaml
+  - include:
+      file: db/changelog/changes/011-fashion-template-example.yaml
+  - include:
+      file: db/changelog/changes/012-card-series.yaml
+  - include:
+      file: db/changelog/changes/013-fashion-card-variants.yaml
+  - include:
+      file: db/changelog/changes/014-card-image-editing.yaml
+  - include:
+      file: db/changelog/changes/015-card-image-redo.yaml
+  - include:
+      file: db/changelog/changes/016-card-exports.yaml

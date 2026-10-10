@@ -1,0 +1,38 @@
+databaseChangeLog:
+  - changeSet:
+      id: 011-fashion-template-example
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload assets/templates/tpl_fashion_hero/reference.webp to MinIO before deployment.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_hero_ref', 'template_reference', 'image/webp',
+                  29704, 384, 512,
+                  'templates/tpl_fashion_hero/reference.webp', '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Крупный заголовок и характеристики',
+                  reference_asset_id = 'asset_tpl_fashion_hero_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Warm beige rounded panel under a white header, with cream badges and small colored accent dots",
+                    "composition": "Oversized headline across the top; source product prominent on the left; stacked feature text and rounded badges on the right",
+                    "lighting": "Soft even studio light, realistic fabric texture and gentle shadows",
+                    "style": "Marketplace infographic with bold condensed headings and readable feature text; rewrite all overlays using user product facts",
+                    "palette": ["#D6C3A0", "#F5F2EB", "#8E7959", "#66DADC"],
+                    "avoid": [
+                      "verbatim reference text or reference branding",
+                      "invented specifications, prices, age claims or color variants",
+                      "unrelated products or unsupported product views",
+                      "changes to source product identity, colors, labels or branding",
+                      "unreadable text or text covering the source product"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_fashion_hero' AND category_id = 'cat_fashion';

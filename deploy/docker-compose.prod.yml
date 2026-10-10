@@ -4,6 +4,7 @@ services:
   app:
     image: tovarika-backend:latest
     restart: unless-stopped
+    user: "${APP_UID:?APP_UID is required}:${APP_GID:?APP_GID is required}"
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-tovarika}
       DB_USERNAME: ${POSTGRES_USER:-tovarika}
@@ -29,6 +30,13 @@ services:
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       AUTH_MAIL_FROM: ${AUTH_MAIL_FROM:-no-reply@tovarika.com}
       AUTH_UI_BASE_URI: ${AUTH_UI_BASE_URI:-https://tovarika.com}
+      OPENAI_MODE: ${OPENAI_MODE:-live}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-6-luna}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2.5-sunburst}
+    secrets:
+      - openai_api_key
     expose:
       - "8080"
     networks:
@@ -86,3 +94,7 @@ networks:
 volumes:
   postgres-data:
   minio-data:
+
+secrets:
+  openai_api_key:
+    file: ./secrets/openai_api_key

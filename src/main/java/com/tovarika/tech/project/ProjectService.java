@@ -179,7 +179,7 @@ class ProjectService {
     private void requireIdle(String projectId) {
         if (Boolean.TRUE.equals(jdbc.queryForObject("""
                 select exists(select 1 from project_jobs
-                    where project_id = ? and status in ('queued', 'processing'))
+                    where project_id = ? and type <> 'export' and status in ('queued', 'processing'))
                 """, Boolean.class, projectId))) {
             throw ProjectException.busy();
         }
