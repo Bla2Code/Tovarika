@@ -90,6 +90,10 @@ Resource Server валидирует active user/session централизов�
 или revoke session действует сразу, а не только после истечения 10-минутного access token. Кэширование этой
 проверки не включено, чтобы не ослаблять revoke semantics.
 
+Список «Активные сессии» показывает только неотозванные сессии с действующими absolute и inactivity сроками.
+Завершённые сессии исчезают из списка без следующего входа; записи session/refresh history сохраняются
+в PostgreSQL для security semantics, включая обнаружение повторного использования refresh token.
+
 Production обязательно задаёт стабильные `JWT_SECRET_BASE64`, `UI_ALLOWED_ORIGINS`, SMTP и Yandex OAuth
 параметры. Локальный HTTP допускает `AUTH_COOKIE_SECURE=false`, но тогда одновременно используйте cookie
 names без префикса `__Host-`, как уже настроено в `compose.yaml`. Signing key, SMTP/Yandex secrets и токены

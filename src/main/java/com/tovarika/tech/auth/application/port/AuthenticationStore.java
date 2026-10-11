@@ -58,7 +58,7 @@ public interface AuthenticationStore {
 
     Optional<AuthenticationSession> findSession(String sessionId);
 
-    List<AuthenticationSession> findUserSessions(String userId);
+    List<AuthenticationSession> findActiveUserSessions(String userId, Instant now, Instant inactivityCutoff);
 
     boolean revokeOwnedSession(String userId, String sessionId, Instant now);
 

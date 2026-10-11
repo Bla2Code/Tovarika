@@ -94,7 +94,8 @@ public class SessionService {
 
     @Transactional(readOnly = true)
     public List<AuthenticationSession> list(String userId) {
-        return store.findUserSessions(userId);
+        Instant now = clock.instant();
+        return store.findActiveUserSessions(userId, now, now.minus(properties.refresh().inactivityTtl()));
     }
 
     @Transactional

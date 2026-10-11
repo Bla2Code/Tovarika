@@ -186,8 +186,10 @@ public class JpaAuthenticationStore implements AuthenticationStore {
     }
 
     @Override
-    public List<AuthenticationSession> findUserSessions(String userId) {
-        return sessions.findAllByUser(userId).stream().map(this::toDomain).toList();
+    public List<AuthenticationSession> findActiveUserSessions(String userId, Instant now, Instant inactivityCutoff) {
+        return sessions.findActiveByUser(userId, now, inactivityCutoff).stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     @Override

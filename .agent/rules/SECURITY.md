@@ -21,6 +21,9 @@
 - `SessionUserJwtValidator` проверяет active user и session в PostgreSQL на каждом Bearer request. Не обходи и не
   дублируй эту проверку в контроллерах; кэш разрешён только отдельным архитектурным решением с сохранением
   немедленной блокировки пользователя и revoke session.
+- `GET /api/v1/auth/sessions` возвращает только действующие сессии пользователя: active user, отсутствие revoke,
+  неистёкший absolute TTL и inactivity TTL. Истёкшие и отозванные записи исключаются в persistence-запросе;
+  login и чтение списка не удаляют session/refresh history, необходимую для reuse detection.
 
 ## 2. Карта существующей реализации
 

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -380,6 +381,61 @@ class AuthenticationContractIntegrationTest {
 
         assertThat(session(first.sessionId()).isRevoked()).isFalse();
         assertThat(session(second.sessionId()).isRevoked()).isTrue();
+    }
+
+    @Test
+    void session_list_only_returns_active_owned_sessions_and_retains_history() throws Exception {
+        SessionGrant current = activeAccount("session-list@example.com");
+        var user = current.user().user();
+        SessionGrant otherActive = sessions.create(user, METADATA);
+        SessionGrant revoked = sessions.create(user, METADATA);
+        SessionGrant absoluteExpired = sessions.create(user, METADATA);
+        SessionGrant inactivityExpired = sessions.create(user, METADATA);
+        activeAccount("foreign-session-list@example.com");
+        sessions.revoke(user.id(), revoked.sessionId());
+
+        Instant now = Instant.now();
+        jdbc.update(
+                "UPDATE auth_sessions SET created_at = ?, last_activity_at = ?, absolute_expires_at = ? WHERE id = ?",
+                Timestamp.from(now.minus(properties.refresh().absoluteTtl()).minusSeconds(60)),
+                Timestamp.from(now.minusSeconds(60)),
+                Timestamp.from(now.minusSeconds(60)),
+                absoluteExpired.sessionId());
+        jdbc.update(
+                "UPDATE auth_sessions SET created_at = ?, last_activity_at = ? WHERE id = ?",
+                Timestamp.from(now.minus(properties.refresh().inactivityTtl()).minusSeconds(120)),
+                Timestamp.from(now.minus(properties.refresh().inactivityTtl()).minusSeconds(60)),
+                inactivityExpired.sessionId());
+
+        mockMvc.perform(get("/api/v1/auth/sessions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + current.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].id").value(
+                        org.hamcrest.Matchers.contains(otherActive.sessionId(), current.sessionId())))
+                .andExpect(jsonPath("$.items[0].current").value(false))
+                .andExpect(jsonPath("$.items[1].current").value(true));
+
+        mockMvc.perform(delete("/api/v1/auth/sessions/{sessionId}", otherActive.sessionId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + current.accessToken()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/auth/sessions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + current.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(current.sessionId()))
+                .andExpect(jsonPath("$.items[0].current").value(true));
+
+        assertThat(session(otherActive.sessionId()).isRevoked()).isTrue();
+        assertThat(session(revoked.sessionId()).isRevoked()).isTrue();
+        assertThat(session(absoluteExpired.sessionId()).isRevoked()).isFalse();
+        assertThat(session(inactivityExpired.sessionId()).isRevoked()).isFalse();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM auth_sessions WHERE user_id = ?", Integer.class, user.id()))
+                .isEqualTo(5);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM refresh_tokens t JOIN auth_sessions s ON s.id = t.session_id WHERE s.user_id = ?",
+                Integer.class, user.id()))
+                .isEqualTo(5);
     }
 
     @Test
