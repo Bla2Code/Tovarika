@@ -1,0 +1,14 @@
+Use case: ads-marketing
+Asset type: One finished marketplace product-card template for the category "Одежда и обувь", for a compact catalogue preview and use as an image-generation reference.
+Input image 1: visual reference for layout, typography, product arrangement and color palette. Create a new polished template based closely on it.
+Canvas: portrait 3:4. Final intended display size 384×512, so every text element must remain readable at that size.
+Subject: a photorealistic dark charcoal children's tracksuit with hooded zip jacket and matching trousers. Show the front of the jacket prominently at left, a smaller back view at lower center, and the trousers angled at bottom left, as in the reference. Green drawstrings and subtle pink/green abstract graphic accents on the fabric; no readable brand lettering.
+Scene/backdrop: warm beige panel with rounded top corners under a white header, cream rounded labels. Soft even studio light, realistic fabric folds and clean cutout edges.
+Composition: oversized tall condensed beige headline "КОСТЮМ" across the top; garment overlap slightly below the headline without obscuring its readability. The right third contains an orderly stack of labels and feature text. Bottom right contains three rounded overlapping color swatches (taupe, ivory, turquoise), matching the supplied reference. Balance product and typography with clean margins; all content inside the frame.
+Text (Russian, verbatim, use only these strings):
+Top headline: "КОСТЮМ"
+Upper right cream badge: "ДЕТСКИЙ"
+Right-side feature lines: "Костюм с начёсом", "Для мальчиков и девочек", "Яркий дизайн"
+Lower right cream badge above swatches: "ЦВЕТА"
+Style: finished real marketplace listing card, restrained beige editorial palette, highly legible dark feature text, bold condensed headings and small colored bullet dots. Keep all heading and feature blocks, with no placeholder labels or interface chrome.
+Output: exactly one card, no mockup frame, watermark, prices, extra logos, extra garments, people or additional captions. Opaque background.

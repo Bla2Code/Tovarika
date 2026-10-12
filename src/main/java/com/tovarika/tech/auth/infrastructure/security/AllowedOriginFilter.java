@@ -47,7 +47,11 @@ public class AllowedOriginFilter extends OncePerRequestFilter {
                 || HttpMethod.PATCH.matches(request.getMethod())
                     && request.getRequestURI().matches("/api/v1/products/[^/]+/analysis"))
                 && !hasBearer(request) && hasTrialCookie(request);
-        return !authMutation && !trialConversion && !projectMutation && !productMutation;
+        boolean cardMutation = HttpMethod.POST.matches(request.getMethod())
+                && (request.getRequestURI().matches("/api/v1/projects/[^/]+/cards")
+                    || request.getRequestURI().matches("/api/v1/projects/[^/]+/cards/[^/]+/(retry|image-edits|region-edits|undo|redo)"))
+                && !hasBearer(request) && hasTrialCookie(request);
+        return !authMutation && !trialConversion && !projectMutation && !productMutation && !cardMutation;
     }
 
     private boolean hasBearer(HttpServletRequest request) {

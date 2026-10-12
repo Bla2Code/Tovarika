@@ -9,3 +9,7 @@
 !tovarika-api-contract/
 !tovarika-api-contract/dist/
 !tovarika-api-contract/dist/**
+
+# Local secrets must never enter the Docker build context, including nested project files.
+**/.env
+**/.env.*

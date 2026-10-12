@@ -4,7 +4,7 @@
     "artifact": "tovarika",
     "type": "backend",
     "description": "Backend-сервис платформы для создания и редактирования карточек товаров для маркетплейсов.",
-    "status": "Инфраструктурный каркас и Authentication v1 реализованы: Spring Security, email auth, rotating refresh sessions, Yandex OAuth, PostgreSQL/Liquibase, MinIO и развертывание. Остальные продуктовые модули остаются каркасом."
+    "status": "Реализованы Authentication v1, trial workspace, загрузка Product, асинхронный анализ и его редактирование, CRUD проектов, каталог/избранное шаблонов и генерация серии до 10 карточек и retry failed Card в stub/live. Regenerate, region edit, billing/quota и экспорт не реализованы."
   },
   "technology": {
     "language": "Java 21",
@@ -79,11 +79,29 @@
       {
         "name": "images",
         "path": "src/main/java/com/tovarika/tech/images",
-        "responsibility": "OCP adapter/factory boundary for image generation and editing; ChatGPT adapter currently uses an explicit offline stub client."
+        "responsibility": "ImageGenerator/optional ImageEditor и Spring registry; ChatGPT adapter поддерживает offline stub, live vision analysis и карточки серии через Responses image tool. Отдельный live edit не реализован."
+      },
+      {
+        "name": "templates",
+        "path": "src/main/java/com/tovarika/tech/templates",
+        "responsibility": "Public catalog/categories/search/cursor pagination, Bearer favorites, server-owned recipe и reference Asset для preview/generation."
+      },
+      {
+        "name": "cards",
+        "path": "src/main/java/com/tovarika/tech/cards",
+        "responsibility": "Async generation позиции 1–10, read-only next-draft, scenario/idea/series/analysis snapshots, failed Card retry на прежней позиции, PostgreSQL queue/lease/fencing и результат Asset."
       }
     ]
   },
   "projectMap": [
+    {
+      "path": "docs/card-series-tasks.md",
+      "purpose": "Задачи серии карточек и критерии приёмки; реализация хранения, seed, API/backend и UI."
+    },
+    {
+      "path": "assets/templates/tpl_fashion_hero/card-variants.json",
+      "purpose": "Источник 10 сценариев для scripts/seed-card-variants.py; seed применяется новой data migration."
+    },
     {
       "path": "src/main/java/com/tovarika/tech",
       "purpose": "Ручной production-код приложения."
@@ -133,12 +151,64 @@
       "purpose": "Обязательные правила расширения реализованного Authentication/Spring Security и написания security acceptance-тестов."
     },
     {
+      "path": ".agent/rules/OPENAI.md",
+      "purpose": "Обязательные правила настройки, защиты secret, локального и production-запуска и диагностики OpenAI API."
+    },
+    {
       "path": ".agent/rules/MIGRATIONS.md",
       "purpose": "Обязательные правила неизменяемости опубликованных Liquibase changeSet и проверка новых миграций."
     },
     {
       "path": "src/test/java/com/tovarika/tech/auth/AuthenticationContractIntegrationTest.java",
       "purpose": "PostgreSQL/Testcontainers acceptance suite и executable пример тестирования Security через настоящий Spring Security pipeline."
+    },
+    {
+      "path": ".agent/rules/RULES.md",
+      "purpose": "Общие правила и индекс документов; подробная логика модулей вынесена отдельно."
+    },
+    {
+      "path": ".agent/rules/DEPS.md",
+      "purpose": "Текущие межмодульные границы, правила зависимостей и контрактная интеграция с UI."
+    },
+    {
+      "path": ".agent/rules/CARD_GENERATION.md",
+      "purpose": "Серия позиций 1–10, next-draft, запуск/replay/retry, worker, snapshots и ограничения редактирования."
+    },
+    {
+      "path": ".agent/rules/CARD_PROMPTS.md",
+      "purpose": "Источники prompt, reference overlay text, палитра и сохранение фактов исходного товара."
+    },
+    {
+      "path": ".agent/rules/TEMPLATES.md",
+      "purpose": "Каталог/favorites, recipe/reference, подготовка и неизменяемость snapshots."
+    },
+    {
+      "path": ".agent/rules/IMAGE_GENERATION.md",
+      "purpose": "AI interfaces/registry, input images, live image transport и нормализация размеров."
+    },
+    {
+      "path": ".agent/rules/PRODUCT_ANALYSIS.md",
+      "purpose": "Analysis jobs, provider result, GET/PATCH, revision и отдельный generationPrompt анализа."
+    },
+    {
+      "path": ".agent/rules/PRODUCTS.md",
+      "purpose": "Оригинальные фото, durable upload compensation, MinIO и HMAC-доставка assets."
+    },
+    {
+      "path": ".agent/rules/PROJECTS.md",
+      "purpose": "Project CRUD, ownership, сериализация с jobs и каскадное удаление."
+    },
+    {
+      "path": ".agent/rules/TRIAL.md",
+      "purpose": "Bootstrap/restore, Bearer-first identity, conversion и текущие границы quota."
+    },
+    {
+      "path": "scripts/seed-card-variants.py",
+      "purpose": "Проверка JSON и генерация нового immutable data changeset без подключения к БД."
+    },
+    {
+      "path": "src/test/java/com/tovarika/tech/cards",
+      "purpose": "PostgreSQL приёмка серии и обновления схемы с существующей первой Card."
     }
   ],
   "apiContract": {
@@ -255,16 +325,17 @@
       "TRIAL_SESSION_TTL",
       "TRIAL_CREATION_MAX_ATTEMPTS",
       "TRIAL_CREATION_WINDOW",
-      "ASSET_PUBLIC_BASE_URL"
-      ,
+      "ASSET_PUBLIC_BASE_URL",
       "OPENAI_MODE",
       "OPENAI_BASE_URL",
-      "OPENAI_API_KEY",
+      "OPENAI_API_KEY_FILE",
+      "OPENAI_API_KEY_SOURCE",
       "OPENAI_IMAGE_MODEL",
       "OPENAI_VISION_MODEL",
-      "ANALYSIS_WORKER_ENABLED"
+      "ANALYSIS_WORKER_ENABLED",
+      "CARD_GENERATION_WORKER_ENABLED"
     ],
-    "rule": "Значения по умолчанию предназначены только для локальной разработки; production-секреты передаются через окружение и не хранятся в Git."
+    "rule": "Локальные defaults предназначены для разработки; production-секреты передаются каналом deployment и не хранятся в Git. OpenAI API key поступает из файлового Compose secret, не из environment контейнера."
   },
   "commands": {
     "prepareContract": "(cd ../tovarika-api-contract && npm ci && npm run build)",
@@ -276,7 +347,14 @@
     "buildJarWithoutTests": "./gradlew bootJar -x test",
     "testAuthentication": "./gradlew test --tests com.tovarika.tech.auth.AuthenticationContractIntegrationTest",
     "test": "./gradlew test",
-    "testProjectMutations": "./gradlew test --tests com.tovarika.tech.project.ProjectMutationsIntegrationTest"
+    "testProjectMutations": "./gradlew test --tests com.tovarika.tech.project.ProjectMutationsIntegrationTest",
+    "checkMigrations": ".agent/rules/check-liquibase-migrations.sh",
+    "testProductUpload": "./gradlew test --tests com.tovarika.tech.auth.ProductUploadIntegrationTest",
+    "testAnalysisJobs": "./gradlew test --tests com.tovarika.tech.auth.AnalysisJobsIntegrationTest",
+    "testAnalysisEditing": "./gradlew test --tests com.tovarika.tech.auth.AnalysisEditingIntegrationTest",
+    "testOpenAiBoundary": "./gradlew test --tests com.tovarika.tech.images.infrastructure.OpenAiResponsesClientTest",
+    "checkCardVariants": "python3 scripts/seed-card-variants.py --check",
+    "testCardSeries": "./gradlew test --tests \"com.tovarika.tech.cards.*\""
   },
   "importantConstraints": [
     "Для сборки рядом должен находиться репозиторий tovarika-api-contract с подготовленным каталогом dist.",
@@ -285,6 +363,28 @@
     "Изображения хранятся в MinIO, а в PostgreSQL должны храниться только их метаданные и object key.",
     "Перед изменением authentication, authorization, cookies, CORS/CSRF, OAuth, sessions или protected endpoint обязательно применяется .agent/rules/SECURITY.md.",
     "Authentication security semantics проверяются на PostgreSQL 18 через Testcontainers; H2 для locking/concurrency не используется.",
-    "JWT_SECRET_BASE64 не имеет значения по умолчанию и должен быть стабильным production secret длиной не менее 256 бит."
-  ]
+    "JWT_SECRET_BASE64 не имеет значения по умолчанию и должен быть стабильным production secret длиной не менее 256 бит.",
+    "Перед изменением OpenAI client, prompt, models, Compose secrets или deployment flow обязательно применяется .agent/rules/OPENAI.md.",
+    "Правила отдельного сценария читаются по ссылке из RULES.md; подробная логика не дублируется в общем документе."
+  ],
+  "rules": {
+    "directory": ".agent/rules",
+    "entrypoint": ".agent/rules/RULES.md",
+    "readingRule": "Сначала общие правила и документ области задачи; соседние документы — только при изменении их ответственности.",
+    "documents": {
+      "general": ".agent/rules/RULES.md",
+      "dependencies": ".agent/rules/DEPS.md",
+      "cardGeneration": ".agent/rules/CARD_GENERATION.md",
+      "cardPrompts": ".agent/rules/CARD_PROMPTS.md",
+      "templates": ".agent/rules/TEMPLATES.md",
+      "imageGeneration": ".agent/rules/IMAGE_GENERATION.md",
+      "productAnalysis": ".agent/rules/PRODUCT_ANALYSIS.md",
+      "products": ".agent/rules/PRODUCTS.md",
+      "projects": ".agent/rules/PROJECTS.md",
+      "trial": ".agent/rules/TRIAL.md",
+      "security": ".agent/rules/SECURITY.md",
+      "openai": ".agent/rules/OPENAI.md",
+      "migrations": ".agent/rules/MIGRATIONS.md"
+    }
+  }
 }

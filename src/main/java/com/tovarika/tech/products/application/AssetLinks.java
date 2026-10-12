@@ -27,6 +27,17 @@ public class AssetLinks {
         return new Link(properties.publicBaseUrl().replaceAll("/$", "") + "/media/assets/" + id
                 + "?expires=" + expiry + "&signature=" + signature(id, expiry), Instant.ofEpochSecond(expiry));
     }
+    public String templatePlaceholderUrl() {
+        return properties.publicBaseUrl().replaceAll("/$", "") + "/media/template-placeholder.png";
+    }
+    public Link createExport(String id, Instant exportExpiry) {
+        long expiry = Math.min(clock.instant().plusSeconds(900).getEpochSecond(), exportExpiry.getEpochSecond());
+        return new Link(properties.publicBaseUrl().replaceAll("/$", "") + "/media/assets/" + id + "/download"
+                + "?expires=" + expiry + "&signature=" + signature("export:" + id, expiry), Instant.ofEpochSecond(expiry));
+    }
+    public void verifyExport(String id, long expires, String signature) {
+        verify("export:" + id, expires, signature);
+    }
     public void verify(String id, long expires, String signature) {
         if (expires <= clock.instant().getEpochSecond() || expires > clock.instant().plusSeconds(900).getEpochSecond()
                 || signature == null || !MessageDigest.isEqual(signature(id, expires).getBytes(StandardCharsets.UTF_8), signature.getBytes(StandardCharsets.UTF_8))) {

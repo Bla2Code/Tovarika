@@ -225,4 +225,6 @@ tasks.named('processResources') {
 tasks.named('test') {
 	useJUnitPlatform()
 	systemProperty 'tovarika.analysis.worker-enabled', 'false'
+	systemProperty 'tovarika.cards.worker-enabled', 'false'
+	systemProperty 'tovarika.exports.worker-enabled', 'false'
 }

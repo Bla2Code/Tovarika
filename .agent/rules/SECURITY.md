@@ -21,6 +21,9 @@
 - `SessionUserJwtValidator` проверяет active user и session в PostgreSQL на каждом Bearer request. Не обходи и не
   дублируй эту проверку в контроллерах; кэш разрешён только отдельным архитектурным решением с сохранением
   немедленной блокировки пользователя и revoke session.
+- `GET /api/v1/auth/sessions` возвращает только действующие сессии пользователя: active user, отсутствие revoke,
+  неистёкший absolute TTL и inactivity TTL. Истёкшие и отозванные записи исключаются в persistence-запросе;
+  login и чтение списка не удаляют session/refresh history, необходимую для reuse detection.
 
 ## 2. Карта существующей реализации
 
@@ -85,7 +88,9 @@ use case или порт из этой карты.
 - Credentialed CORS использует только явный `tovarika.security.cors.allowed-origins`; wildcard запрещён.
 - CSRF отключён потому, что Bearer JWT не является ambient credential, а существующие cookie-authenticated
   mutations защищены strict Origin validation. Нельзя добавлять новый cookie-authenticated mutation, не расширив
-  эту модель и не задокументировав решение.
+  эту модель и не задокументировав решение. `POST /projects/{id}/cards` и
+  `POST /projects/{id}/cards/{cardId}/retry`, а также `image-edits`, `region-edits`, `undo`, `redo` входят в централизованную cardMutation policy;
+  GET next-draft использует тот же WorkspaceIdentityResolver и ownership проекта.
 
 ## 6. Как писать security-тесты
 

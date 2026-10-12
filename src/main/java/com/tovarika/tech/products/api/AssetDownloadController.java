@@ -10,10 +10,11 @@ public class AssetDownloadController {
     private final AssetDeliveryService delivery;
     public AssetDownloadController(AssetDeliveryService delivery) { this.delivery=delivery; }
     @GetMapping("/media/assets/{id}")
-    public ResponseEntity<byte[]> download(@PathVariable String id, @RequestParam long expires, @RequestParam String signature) {
+    public ResponseEntity<org.springframework.core.io.InputStreamResource> download(@PathVariable String id, @RequestParam long expires, @RequestParam String signature) {
         var content=delivery.download(id, expires, signature);
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(content.mediaType()))
                 .header("Cache-Control", "private, no-store").header("X-Content-Type-Options", "nosniff")
-                .header("Content-Disposition", "inline").body(content.bytes());
+                .contentLength(content.size()).header("Content-Disposition", "inline")
+                .body(new org.springframework.core.io.InputStreamResource(content.input()));
     }
 }

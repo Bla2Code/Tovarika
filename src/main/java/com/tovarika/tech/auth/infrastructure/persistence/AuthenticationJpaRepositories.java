@@ -53,8 +53,11 @@ interface AuthSessionJpaRepository extends JpaRepository<AuthSessionEntity, Stri
             @Param("now") Instant now,
             @Param("inactivityCutoff") Instant inactivityCutoff);
 
-    @Query("select s from AuthSessionEntity s where s.user.id = :userId order by s.createdAt desc")
-    List<AuthSessionEntity> findAllByUser(@Param("userId") String userId);
+    @Query("select s from AuthSessionEntity s where s.user.id = :userId and s.user.status = com.tovarika.tech.auth.domain.UserStatus.ACTIVE and s.revokedAt is null and s.absoluteExpiresAt > :now and s.lastActivityAt > :inactivityCutoff order by s.createdAt desc")
+    List<AuthSessionEntity> findActiveByUser(
+            @Param("userId") String userId,
+            @Param("now") Instant now,
+            @Param("inactivityCutoff") Instant inactivityCutoff);
 
     @Modifying
     @Query("update AuthSessionEntity s set s.revokedAt = coalesce(s.revokedAt, :now) where s.user.id = :userId and s.id = :sessionId")

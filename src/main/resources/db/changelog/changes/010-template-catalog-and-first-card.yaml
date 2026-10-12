@@ -1,0 +1,140 @@
+databaseChangeLog:
+  - changeSet:
+      id: 010-template-catalog-and-first-card
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE TABLE template_categories (
+                  id varchar(40) PRIMARY KEY,
+                  name varchar(100) NOT NULL,
+                  sort_order integer NOT NULL,
+                  available boolean NOT NULL DEFAULT true,
+                  UNIQUE (sort_order)
+              );
+
+              ALTER TABLE assets DROP CONSTRAINT ck_assets_purpose;
+              ALTER TABLE assets ADD CONSTRAINT ck_assets_purpose CHECK (
+                  purpose IN ('source_image', 'card_image', 'region_mask', 'export_file', 'template_reference')
+              );
+
+              ALTER TABLE templates
+                  ADD COLUMN name varchar(200) NOT NULL DEFAULT 'Template',
+                  ADD COLUMN category_id varchar(40) REFERENCES template_categories(id),
+                  ADD COLUMN reference_asset_id varchar(40) REFERENCES assets(id),
+                  ADD COLUMN recipe_json jsonb NOT NULL DEFAULT '{
+                    "schemaVersion": 1,
+                    "scene": "Neutral marketplace product-card scene",
+                    "composition": "Keep the product prominent and fully visible",
+                    "lighting": "Soft studio lighting",
+                    "style": "Clean commercial product photography",
+                    "palette": ["#F2F4F7", "#D9DEE5"],
+                    "avoid": ["additional products", "brand changes", "prices", "unverified claims", "reference text"]
+                  }'::jsonb,
+                  ADD COLUMN sort_order integer NOT NULL DEFAULT 0,
+                  ADD COLUMN created_at timestamptz NOT NULL DEFAULT current_timestamp,
+                  ADD COLUMN updated_at timestamptz NOT NULL DEFAULT current_timestamp;
+              CREATE INDEX ix_templates_catalog ON templates(category_id, sort_order, id) WHERE available = true;
+
+              ALTER TABLE projects ADD CONSTRAINT fk_projects_selected_template
+                  FOREIGN KEY (selected_template_id) REFERENCES templates(id);
+
+              CREATE TABLE template_favorites (
+                  user_id varchar(40) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  template_id varchar(40) NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+                  created_at timestamptz NOT NULL,
+                  PRIMARY KEY (user_id, template_id)
+              );
+              CREATE INDEX ix_template_favorites_template ON template_favorites(template_id);
+
+              ALTER TABLE cards ALTER COLUMN template_id DROP NOT NULL;
+              ALTER TABLE cards ALTER COLUMN idea DROP NOT NULL;
+              ALTER TABLE cards ADD COLUMN recipe_snapshot jsonb;
+              ALTER TABLE cards ADD COLUMN reference_asset_snapshot_id varchar(40) REFERENCES assets(id);
+              ALTER TABLE cards ADD COLUMN analysis_revision integer CHECK (analysis_revision IS NULL OR analysis_revision >= 1);
+              ALTER TABLE cards ADD COLUMN error_code varchar(40);
+
+              ALTER TABLE project_jobs
+                  ADD COLUMN card_id varchar(40) REFERENCES cards(id) ON DELETE CASCADE,
+                  ADD COLUMN owner_scope varchar(40),
+                  ADD COLUMN idempotency_key varchar(128),
+                  ADD COLUMN attempt integer NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+                  ADD COLUMN lease_until timestamptz,
+                  ADD COLUMN started_at timestamptz,
+                  ADD COLUMN finished_at timestamptz,
+                  ADD COLUMN failure_code varchar(40);
+              CREATE UNIQUE INDEX ux_project_jobs_idempotency
+                  ON project_jobs(owner_scope, idempotency_key)
+                  WHERE owner_scope IS NOT NULL AND idempotency_key IS NOT NULL;
+              CREATE UNIQUE INDEX ux_project_jobs_active_card_generation
+                  ON project_jobs(project_id)
+                  WHERE type = 'card_generation' AND status IN ('queued', 'processing');
+              CREATE INDEX ix_project_jobs_queue ON project_jobs(type, status, lease_until, created_at);
+
+              INSERT INTO template_categories(id, name, sort_order) VALUES
+                  ('cat_universal', 'Универсальные', 10),
+                  ('cat_fashion', 'Одежда и обувь', 20),
+                  ('cat_beauty', 'Красота и уход', 30),
+                  ('cat_electronics', 'Электроника и техника', 40),
+                  ('cat_home', 'Дом и интерьер', 50),
+                  ('cat_food', 'Еда и напитки', 60),
+                  ('cat_kids', 'Детские товары', 70),
+                  ('cat_sport', 'Спорт и отдых', 80);
+
+              INSERT INTO templates(id, name, category_id, sort_order, recipe_json) VALUES
+                  ('tpl_universal_hero', 'Чистый фон', 'cat_universal', 10,
+                   '{"schemaVersion":1,"scene":"clean neutral studio background","composition":"single product centered and fully visible","lighting":"soft diffused studio light","style":"minimal marketplace hero card","palette":["#F7F7F5","#DDE2E8"],"avoid":["extra products","text","prices","badges","brand changes"]}'),
+                  ('tpl_universal_accent', 'Цветовой акцент', 'cat_universal', 20,
+                   '{"schemaVersion":1,"scene":"modern studio with one restrained color accent","composition":"single product centered with clear negative space","lighting":"soft directional commercial light","style":"bright modern marketplace card","palette":["#F3F5F8","#7AA7FF"],"avoid":["extra products","text","prices","brand changes"]}'),
+                  ('tpl_universal_lifestyle', 'Лёгкий lifestyle', 'cat_universal', 30,
+                   '{"schemaVersion":1,"scene":"subtle realistic usage environment without people","composition":"product remains the dominant foreground subject","lighting":"natural soft daylight","style":"restrained lifestyle product photography","palette":["#EFE8DD","#C9D6C2"],"avoid":["people","extra products","text","prices","brand changes"]}'),
+
+                  ('tpl_fashion_hero', 'Fashion studio', 'cat_fashion', 10,
+                   '{"schemaVersion":1,"scene":"clean fashion studio backdrop","composition":"garment or footwear centered and fully visible","lighting":"soft editorial studio light","style":"minimal fashion catalog","palette":["#F4F1ED","#D6D0C8"],"avoid":["models","extra apparel","text","logos not present on source"]}'),
+                  ('tpl_fashion_accent', 'Fashion geometry', 'cat_fashion', 20,
+                   '{"schemaVersion":1,"scene":"studio with restrained geometric accents","composition":"product large in center with balanced negative space","lighting":"crisp commercial light","style":"contemporary fashion marketplace card","palette":["#F8F4EE","#D9A66F"],"avoid":["models","extra products","text","brand changes"]}'),
+                  ('tpl_fashion_lifestyle', 'Fashion lifestyle', 'cat_fashion', 30,
+                   '{"schemaVersion":1,"scene":"tasteful wardrobe or urban context without people","composition":"product remains primary and unobstructed","lighting":"natural editorial light","style":"premium fashion lifestyle","palette":["#E9E1D7","#7D746D"],"avoid":["people","extra products","text","brand changes"]}'),
+
+                  ('tpl_beauty_hero', 'Beauty clean', 'cat_beauty', 10,
+                   '{"schemaVersion":1,"scene":"clean beauty studio with smooth backdrop","composition":"package upright and centered","lighting":"soft glossy beauty lighting","style":"premium cosmetics hero card","palette":["#FAF2F3","#E8D5D8"],"avoid":["flowers covering the product","extra packages","text","brand changes"]}'),
+                  ('tpl_beauty_accent', 'Beauty podium', 'cat_beauty', 20,
+                   '{"schemaVersion":1,"scene":"rounded podium with a subtle gradient","composition":"product centered on podium and fully visible","lighting":"soft luminous commercial light","style":"modern beauty advertising","palette":["#F4E7EF","#C9A7C2"],"avoid":["extra products","text","prices","brand changes"]}'),
+                  ('tpl_beauty_lifestyle', 'Beauty natural', 'cat_beauty', 30,
+                   '{"schemaVersion":1,"scene":"calm bathroom or natural spa context","composition":"product dominant in foreground","lighting":"warm natural light","style":"clean skincare lifestyle","palette":["#EEE8DD","#A9B89B"],"avoid":["people","extra products","text","unsupported ingredients"]}'),
+
+                  ('tpl_electronics_hero', 'Tech studio', 'cat_electronics', 10,
+                   '{"schemaVersion":1,"scene":"precise neutral technology studio","composition":"device centered with edges clearly visible","lighting":"controlled rim and fill light","style":"clean electronics catalog","palette":["#EEF1F5","#B9C2CE"],"avoid":["extra devices","invented screens","text","brand changes"]}'),
+                  ('tpl_electronics_accent', 'Tech neon', 'cat_electronics', 20,
+                   '{"schemaVersion":1,"scene":"dark studio with restrained blue light accents","composition":"device large and centered","lighting":"cool rim light with readable product details","style":"premium technology advertising","palette":["#101722","#3E8BFF"],"avoid":["extra devices","invented interfaces","text","brand changes"]}'),
+                  ('tpl_electronics_lifestyle', 'Tech workspace', 'cat_electronics', 30,
+                   '{"schemaVersion":1,"scene":"minimal modern workspace without people","composition":"device is primary and unobstructed","lighting":"soft daylight with controlled reflections","style":"realistic technology lifestyle","palette":["#E8E5DF","#7F8C99"],"avoid":["people","extra devices","text","brand changes"]}'),
+
+                  ('tpl_home_hero', 'Home clean', 'cat_home', 10,
+                   '{"schemaVersion":1,"scene":"warm neutral interior studio","composition":"product centered and fully visible","lighting":"soft window-like light","style":"clean home-goods catalog","palette":["#F1E9DE","#C9B9A5"],"avoid":["clutter","extra products","text","brand changes"]}'),
+                  ('tpl_home_accent', 'Home shapes', 'cat_home', 20,
+                   '{"schemaVersion":1,"scene":"minimal interior with simple architectural shapes","composition":"product dominant with balanced negative space","lighting":"warm diffused studio light","style":"modern home marketplace card","palette":["#ECE3D7","#B98E6B"],"avoid":["clutter","extra products","text","brand changes"]}'),
+                  ('tpl_home_lifestyle', 'Cozy interior', 'cat_home', 30,
+                   '{"schemaVersion":1,"scene":"cozy realistic home environment","composition":"product naturally placed but remains the main subject","lighting":"warm natural daylight","style":"calm interior lifestyle","palette":["#E8DDCF","#8FA18A"],"avoid":["people","visual clutter","text","brand changes"]}'),
+
+                  ('tpl_food_hero', 'Food clean', 'cat_food', 10,
+                   '{"schemaVersion":1,"scene":"clean food studio backdrop","composition":"package or product centered and clearly visible","lighting":"fresh bright commercial light","style":"clean grocery marketplace card","palette":["#FFF5E8","#F0C77B"],"avoid":["extra food","invented ingredients","text","brand changes"]}'),
+                  ('tpl_food_accent', 'Food color', 'cat_food', 20,
+                   '{"schemaVersion":1,"scene":"bright studio with one appetizing color accent","composition":"product large in center with open space","lighting":"vivid but natural commercial light","style":"modern food advertising","palette":["#FFF2D8","#F29B62"],"avoid":["extra products","invented ingredients","text","brand changes"]}'),
+                  ('tpl_food_lifestyle', 'Kitchen scene', 'cat_food', 30,
+                   '{"schemaVersion":1,"scene":"clean kitchen or dining context without people","composition":"product dominant in foreground","lighting":"warm natural daylight","style":"realistic food lifestyle","palette":["#EFE3D2","#B5A079"],"avoid":["people","extra products","invented ingredients","text"]}'),
+
+                  ('tpl_kids_hero', 'Kids clean', 'cat_kids', 10,
+                   '{"schemaVersion":1,"scene":"bright safe studio with soft rounded shapes","composition":"single product centered and fully visible","lighting":"soft cheerful studio light","style":"clean children goods card","palette":["#F7F1E8","#9FCDE5"],"avoid":["children","extra toys","text","age claims"]}'),
+                  ('tpl_kids_accent', 'Kids playful', 'cat_kids', 20,
+                   '{"schemaVersion":1,"scene":"playful pastel studio with simple abstract accents","composition":"product remains dominant and unobstructed","lighting":"bright soft light","style":"friendly children marketplace card","palette":["#FCE7D7","#A7D7C5"],"avoid":["children","extra products","text","unsupported age claims"]}'),
+                  ('tpl_kids_lifestyle', 'Kids room', 'cat_kids', 30,
+                   '{"schemaVersion":1,"scene":"tidy child room context without people","composition":"product naturally placed and clearly visible","lighting":"gentle daylight","style":"calm family lifestyle","palette":["#EFE8DC","#B9CDE1"],"avoid":["children","clutter","extra products","text"]}'),
+
+                  ('tpl_sport_hero', 'Sport studio', 'cat_sport', 10,
+                   '{"schemaVersion":1,"scene":"clean dynamic sport studio","composition":"equipment centered and fully visible","lighting":"crisp directional studio light","style":"modern sport catalog","palette":["#EEF1F3","#8EA5B5"],"avoid":["athletes","extra equipment","text","performance claims"]}'),
+                  ('tpl_sport_accent', 'Sport energy', 'cat_sport', 20,
+                   '{"schemaVersion":1,"scene":"dynamic studio with restrained motion-inspired accents","composition":"product large and dominant","lighting":"high-contrast commercial light","style":"energetic sport advertising","palette":["#17212A","#58C4A3"],"avoid":["athletes","extra products","text","performance claims"]}'),
+                  ('tpl_sport_lifestyle', 'Outdoor sport', 'cat_sport', 30,
+                   '{"schemaVersion":1,"scene":"realistic outdoor recreation context without people","composition":"product prominent in foreground","lighting":"natural outdoor light","style":"authentic sport lifestyle","palette":["#DDE4D7","#789071"],"avoid":["people","extra products","text","performance claims"]}');

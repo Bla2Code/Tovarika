@@ -40,6 +40,10 @@ public class AnalysisService {
     public AnalysisJob getJob(String id,String userId,String trialId) {
         return store.ownedJob(id,userId,trialId).orElseThrow(()->new ApiFailure(404,"JOB_NOT_FOUND","Job not found"));
     }
+    @Transactional(readOnly=true)
+    public java.util.Optional<AnalysisJob> findJob(String id,String userId,String trialId) {
+        return store.ownedJob(id,userId,trialId);
+    }
     @Transactional
     public com.tovarika.tech.analyses.domain.ProductAnalysisView getAnalysis(
             String productId,String userId,String trialId) {

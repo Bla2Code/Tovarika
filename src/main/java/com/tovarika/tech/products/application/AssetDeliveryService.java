@@ -14,7 +14,7 @@ public class AssetDeliveryService {
     public Content download(String id, long expires, String signature) {
         links.verify(id, expires, signature);
         var asset=store.findAsset(id).orElseThrow(() -> new ApiFailure(404, "ASSET_NOT_FOUND", "Asset not found"));
-        return new Content(asset.mediaType(), storage.read(asset.storageKey()));
+        return new Content(asset.mediaType(), asset.size(), storage.open(asset.storageKey()));
     }
-    public record Content(String mediaType, byte[] bytes) {}
+    public record Content(String mediaType, long size, java.io.InputStream input) {}
 }

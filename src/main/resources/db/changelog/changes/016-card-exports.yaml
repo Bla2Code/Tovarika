@@ -1,0 +1,28 @@
+databaseChangeLog:
+  - changeSet:
+      id: 016-card-exports
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE TABLE card_exports (
+                  id varchar(40) PRIMARY KEY,
+                  project_id varchar(40) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                  job_id varchar(40) NOT NULL UNIQUE REFERENCES project_jobs(id) ON DELETE CASCADE,
+                  format varchar(10) NOT NULL CHECK(format IN ('original','png','jpg')),
+                  packaging varchar(10) NOT NULL CHECK(packaging IN ('single','zip')),
+                  file_name varchar(255) NOT NULL,
+                  snapshot jsonb NOT NULL,
+                  artifact_asset_id varchar(40) REFERENCES assets(id),
+                  created_at timestamptz NOT NULL,
+                  expires_at timestamptz NOT NULL
+              );
+              CREATE INDEX ix_card_exports_expiry ON card_exports(expires_at);
+              -- Survives project deletion so uploaded and abandoned export files can be removed.
+              CREATE TABLE export_files (
+                  storage_key varchar(255) PRIMARY KEY,
+                  export_id varchar(40) NOT NULL,
+                  asset_id varchar(40) NOT NULL,
+                  created_at timestamptz NOT NULL
+              );

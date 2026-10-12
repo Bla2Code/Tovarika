@@ -2,6 +2,7 @@ services:
   app:
     image: tovarika-backend:local
     profiles: ["full"]
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     build:
       context: ..
       dockerfile: Tovarika/Dockerfile
@@ -28,6 +29,13 @@ services:
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
       AUTH_UI_BASE_URI: ${AUTH_UI_BASE_URI:-http://localhost:8081}
+      OPENAI_MODE: ${OPENAI_MODE:-live}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-6-luna}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2.5-sunburst}
+    secrets:
+      - openai_api_key
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:
@@ -78,3 +86,7 @@ services:
 volumes:
   postgres-data:
   minio-data:
+
+secrets:
+  openai_api_key:
+    file: ${OPENAI_API_KEY_SOURCE:-../.secrets/openai_api_key}

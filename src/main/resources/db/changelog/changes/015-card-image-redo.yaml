@@ -1,0 +1,16 @@
+databaseChangeLog:
+  - changeSet:
+      id: 015-card-image-redo
+      author: codex
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE card_image_undo_receipts RENAME TO card_image_history_receipts;
+              CREATE TABLE card_image_redo_stack (
+                  card_id varchar(40) NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                  position bigint NOT NULL CHECK (position > 0),
+                  version_id varchar(40) NOT NULL,
+                  PRIMARY KEY(card_id,position),
+                  UNIQUE(card_id,version_id),
+                  FOREIGN KEY(card_id,version_id) REFERENCES card_image_versions(card_id,id) ON DELETE CASCADE
+              );

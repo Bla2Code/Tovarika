@@ -31,5 +31,16 @@ public class MinioProductStorage implements ProductStorage {
         try { client.removeObject(RemoveObjectArgs.builder().bucket(properties.bucket()).object(key).build()); }
         catch (Exception failure) { throw unavailable(); }
     }
+    public java.io.InputStream open(String key) {
+        try {
+            return client.getObject(GetObjectArgs.builder().bucket(properties.bucket()).object(key).build());
+        } catch (Exception failure) { throw unavailable(); }
+    }
+    public void putStream(String key, java.io.InputStream input, long size, String mediaType) {
+        try {
+            client.putObject(PutObjectArgs.builder().bucket(properties.bucket()).object(key)
+                    .contentType(mediaType).stream(input, size, 10L * 1024 * 1024).build());
+        } catch (Exception failure) { throw unavailable(); }
+    }
     private ApiFailure unavailable() { return new ApiFailure(500, "INTERNAL_ERROR", "Image storage unavailable"); }
 }
