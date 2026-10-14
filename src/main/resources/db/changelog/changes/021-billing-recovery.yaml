@@ -1,0 +1,7 @@
+databaseChangeLog:
+  - changeSet:
+      id: 021-billing-recovery
+      author: codex
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/021-billing-recovery.sql

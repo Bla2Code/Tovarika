@@ -17,10 +17,18 @@ import org.springframework.stereotype.Repository;
 public class JdbcImageEditingStore implements ImageEditingStore {
     private final JdbcTemplate jdbc;
     private final CardGenerationStore cards;
-    public JdbcImageEditingStore(JdbcTemplate jdbc, CardGenerationStore cards) { this.jdbc=jdbc; this.cards=cards; }
+    private final com.tovarika.tech.cards.CardJobBilling billing;
+    public JdbcImageEditingStore(JdbcTemplate jdbc, CardGenerationStore cards,com.tovarika.tech.cards.CardJobBilling billing) { this.jdbc=jdbc; this.cards=cards; this.billing=billing; }
     public void lockOwnerProject(String projectId, String userId, String trialId) {
         cards.lockOwner(userId,trialId);
         cards.lockProject(projectId,userId,trialId);
+    }
+    public void lockOwner(String user,String trial) { cards.lockOwner(user,trial); }
+    public void requireOwnedProject(String project,String user,String trial) { cards.requireOwnedProject(project,user,trial); }
+    public void lockProject(String project,String user,String trial) { cards.lockProject(project,user,trial); }
+    public Dimensions dimensions(String versionId) {
+        return jdbc.queryForObject("select a.width,a.height from card_image_versions v join assets a on a.id=v.image_asset_id where v.id=?",
+                (r,n)->new Dimensions(r.getInt(1),r.getInt(2)),versionId);
     }
     public Current current(String projectId, String cardId) {
         return jdbc.query("""
@@ -35,17 +43,20 @@ public class JdbcImageEditingStore implements ImageEditingStore {
         if(cards.busy(projectId)) throw new ApiFailure(409,"CARD_BUSY","Project is processing an operation");
     }
     public Optional<String> replay(String scope,String key,String digest,boolean history) {
-        var receipt=jdbc.queryForList("select command_digest from card_image_history_receipts where owner_scope=? and idempotency_key=?",String.class,scope,key);
-        if(!receipt.isEmpty()) {
-            if(!history || !receipt.getFirst().equals(digest)) throw conflict();
-            return Optional.of("history");
-        }
-        var jobs=jdbc.query("select id,command_digest from project_jobs where owner_scope=? and idempotency_key=?",
-                (r,n)->new String[]{r.getString(1),r.getString(2)},scope,key);
-        if(jobs.isEmpty()) return Optional.empty();
-        if(history || !digest.equals(jobs.getFirst()[1])) throw conflict();
-        return Optional.of(jobs.getFirst()[0]);
+        var candidates=jdbc.query("""
+                select 'history' as id,command_digest,true as history from card_image_history_receipts
+                where idempotency_key=? and (owner_scope=? or owner_scope in (select id from trial_sessions where owner_user_id=?))
+                union all
+                select id,command_digest,false as history from project_jobs
+                where idempotency_key=? and (owner_scope=? or owner_scope in (select id from trial_sessions where owner_user_id=?))
+                """, (r,n)->new Replay(r.getString("id"),r.getString("command_digest"),r.getBoolean("history")),
+                key,scope,scope,key,scope,scope);
+        if(candidates.isEmpty()) return Optional.empty();
+        var matching=candidates.stream().filter(c -> c.history()==history && digest.equals(c.digest())).toList();
+        if(matching.size()!=1) throw conflict();
+        return Optional.of(matching.getFirst().id());
     }
+    private record Replay(String id,String digest,boolean history) {}
     private ApiFailure conflict() { return new ApiFailure(409,"IDEMPOTENCY_CONFLICT","Key belongs to another command or payload"); }
     public void enqueue(String id,String projectId,String cardId,String type,String scope,String key,String digest,
             String base,long revision,String payload,Instant now) {
@@ -96,14 +107,8 @@ public class JdbcImageEditingStore implements ImageEditingStore {
                 """,this::map,id,userId,trialId).stream().findFirst();
     }
     public Optional<ImageEditJob> claim(Instant now) {
-        return jdbc.query("""
-                update project_jobs set status='processing',attempt=attempt+1,lease_until=?,
-                    started_at=coalesce(started_at,?),updated_at=?
-                where id=(select id from project_jobs where type in ('card_image_edit','card_region_edit')
-                    and (status='queued' or (status='processing' and lease_until<=?))
-                    order by created_at for update skip locked limit 1) returning *
-                """,this::map,Timestamp.from(now.plusSeconds(300)),Timestamp.from(now),Timestamp.from(now),Timestamp.from(now))
-                .stream().findFirst();
+        return billing.claim(false,now,now.plus(com.tovarika.tech.billing.recovery.AiJobRecovery.LEASE))
+                .flatMap(id->jdbc.query("select * from project_jobs where id=?",this::map,id).stream().findFirst());
     }
     public Source source(ImageEditJob job) {
         return jdbc.queryForObject("""
@@ -112,16 +117,21 @@ public class JdbcImageEditingStore implements ImageEditingStore {
                 """,(r,n)->new Source(r.getString(1),r.getString(2),r.getString(3)),job.baseVersionId(),job.cardId());
     }
     private boolean lockJob(ImageEditJob job) {
+        billing.lock(job.id());
         return !jdbc.queryForList("select id from project_jobs where id=? and status='processing' and attempt=? for update",
                 String.class,job.id(),job.attempt()).isEmpty();
     }
     public boolean complete(ImageEditJob job,Output output,Instant now) {
+        return complete(job,output,now,true);
+    }
+    public boolean complete(ImageEditJob job,Output output,Instant now,boolean aiCalled) {
         if(!lockJob(job)) return false;
         var current=jdbc.queryForList("""
                 select id from cards where id=? and current_version_id=? and image_revision=?
                     and last_image_job_id=? for update
                 """,String.class,job.cardId(),job.baseVersionId(),job.expectedRevision(),job.id());
         if(current.isEmpty()) { failLocked(job,"CARD_VERSION_CONFLICT",now); return false; }
+        if(output.size()<=0 || output.width()<=0 || output.height()<=0) throw new IllegalArgumentException("Invalid output");
         String versionId="ver_"+UUID.randomUUID().toString().replace("-","");
         jdbc.update("""
                 insert into assets(id,purpose,media_type,size_bytes,width,height,has_alpha,url,storage_key,created_at)
@@ -147,6 +157,7 @@ public class JdbcImageEditingStore implements ImageEditingStore {
                 update project_jobs set status='completed',result_version_id=?,result_asset_id=?,result_image_revision=?,
                     finished_at=?,updated_at=?,lease_until=null where id=?
                 """,versionId,output.id(),revision,Timestamp.from(now),Timestamp.from(now),job.id());
+        billing.finish(job.id(),true,aiCalled);
         return true;
     }
     public boolean fail(ImageEditJob job,String code,Instant now) {
@@ -158,6 +169,7 @@ public class JdbcImageEditingStore implements ImageEditingStore {
                 Timestamp.from(now),job.cardId(),job.id());
         jdbc.update("update project_jobs set status='failed',failure_code=?,finished_at=?,updated_at=?,lease_until=null where id=?",
                 code,Timestamp.from(now),Timestamp.from(now),job.id());
+        billing.finish(job.id(),false,false);
     }
     private ImageEditJob map(ResultSet r,int row) throws SQLException {
         return new ImageEditJob(r.getString("id"),r.getString("project_id"),r.getString("card_id"),r.getString("type"),

@@ -24,7 +24,7 @@ public class AnalysisService {
         if (key==null || !key.matches("[A-Za-z0-9._:-]{8,128}")) throw new ApiFailure(400,"VALIDATION_ERROR","Invalid idempotency key");
         store.lockOwner(userId,trialId);
         var product=store.lockProduct(productId,userId,trialId);
-        var previous=store.previous(key,userId,trialId);
+        var previous=store.previous(key,userId,trialId,productId);
         if (previous.isPresent()) {
             if (!previous.get().productId().equals(productId)) throw new ApiFailure(409,"IDEMPOTENCY_CONFLICT","Key belongs to another operation");
             return previous.get();

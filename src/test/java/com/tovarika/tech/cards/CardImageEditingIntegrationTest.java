@@ -70,6 +70,12 @@ class CardImageEditingIntegrationTest {
     }
     @AfterEach void cleanup(){storage.failReads=false;jdbc.execute("truncate projects,cards,project_jobs cascade");}
 
+    @Test void billingAdmissionIsDisabledByDefault() {
+        var job=complete("default-gate-edit",entire);
+        assertThat(jdbc.queryForObject("select count(*) from project_jobs where billing_operation_id is not null",Integer.class)).isZero();
+        assertThat(job.status()).isEqualTo("ready");
+    }
+
     @Test void threeEditsUndoAndRedoRestoreExactAssetsAcrossReloadAndKeepCountAndPreview() throws Exception {
         var original=current();String preview=jdbc.queryForObject("select preview_asset_id from projects where id='prj_edit'",String.class);
         var first=complete("edit-first-key",entire);

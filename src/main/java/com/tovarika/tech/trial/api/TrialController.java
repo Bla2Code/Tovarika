@@ -1,5 +1,7 @@
 package com.tovarika.tech.trial.api;
 
+import com.tovarika.api.publicapi.model.TovarikaUnitDto;
+import com.tovarika.api.publicapi.model.CreditWalletDto;
 import com.tovarika.api.publicapi.TrialApi;
 import com.tovarika.api.publicapi.model.TrialSessionDto;
 import com.tovarika.api.publicapi.model.TrialStatusDto;
@@ -47,6 +49,11 @@ public class TrialController implements TrialApi {
     private TrialSessionDto dto(TrialSession session) {
         return new TrialSessionDto(session.id(), session.exhausted() ? TrialStatusDto.EXHAUSTED : TrialStatusDto.ACTIVE,
                 session.generationLimit(), session.generationsUsed(), session.remainingGenerations(),
-                session.createdAt().atOffset(ZoneOffset.UTC), session.expiresAt().atOffset(ZoneOffset.UTC));
+                session.createdAt().atOffset(ZoneOffset.UTC), session.expiresAt().atOffset(ZoneOffset.UTC))
+                .allowanceUnits(session.allowanceUnits())
+                .wallet(new CreditWalletDto(session.wallet().id(),
+                        TovarikaUnitDto.TOVARIKA_CENT,
+                        session.wallet().totalUnits(), session.wallet().availableUnits(),
+                        session.wallet().updatedAt().atOffset(ZoneOffset.UTC)));
     }
 }

@@ -20,8 +20,9 @@ public class CardImageEditingService {
     private final ImageEditingStore store;
     private final ObjectMapper mapper;
     private final Clock clock;
-    public CardImageEditingService(ImageEditingStore store,ObjectMapper mapper,Clock clock) {
-        this.store=store;this.mapper=mapper;this.clock=clock;
+    private final com.tovarika.tech.cards.CardJobBilling billing;
+    public CardImageEditingService(ImageEditingStore store,ObjectMapper mapper,Clock clock,com.tovarika.tech.cards.CardJobBilling billing) {
+        this.store=store;this.mapper=mapper;this.clock=clock;this.billing=billing;
     }
     @Transactional
     public String start(String projectId,String cardId,String key,String userId,String trialId,
@@ -34,18 +35,38 @@ public class CardImageEditingService {
         if(edit.mask()==null) parameters.remove("mask");
         String payload=mapper.writeValueAsString(parameters);
         String digest=digest(legacy?"region":"image-edit",projectId,cardId,base,revision,payload);
-        store.lockOwnerProject(projectId,userId,trialId);
-        var current=store.current(projectId,cardId);
+        store.lockOwner(userId,trialId);
+        store.requireOwnedProject(projectId,userId,trialId);
+        store.current(projectId,cardId);
         String scope=userId==null?trialId:userId;
         var replay=store.replay(scope,key,digest,false);
         if(replay.isPresent()) return replay.get();
+        billing.prepare(userId,trialId,"entire".equals(edit.kind())?cardId:null);
+        store.lockProject(projectId,userId,trialId);
+        var current=store.current(projectId,cardId);
         store.requireIdle(projectId);
         if(current.versionId()==null || !"ready".equals(current.status()))
             throw new ApiFailure(409,"RESULT_NOT_READY","A successful image is required");
         requireVersion(current,base==null?current.versionId():base,revision==null?current.revision():revision);
         String id="job_"+UUID.randomUUID().toString().replace("-","");
+
+        var code=switch(edit.kind()) {
+            case "entire" -> com.tovarika.tech.billing.domain.Billing.Code.image_entire_edit;
+            case "region" -> com.tovarika.tech.billing.domain.Billing.Code.image_region_edit;
+            case "erase" -> com.tovarika.tech.billing.domain.Billing.Code.image_erase;
+            case "remove_background" -> com.tovarika.tech.billing.domain.Billing.Code.image_remove_background;
+            case "resize" -> {
+                var size=store.dimensions(current.versionId());
+                yield ResizePlan.of(size.width(),size.height(),edit.aspectRatio(),edit.mode()).aiRequired()
+                        ?com.tovarika.tech.billing.domain.Billing.Code.image_outpaint
+                        :com.tovarika.tech.billing.domain.Billing.Code.cpu_only;
+            }
+            default -> throw new IllegalArgumentException("Unsupported operation");
+        };
+        String operationId=billing.admit(userId,trialId,key,digest,code,"entire".equals(edit.kind())?cardId:null,id);
         store.enqueue(id,projectId,cardId,legacy?"card_region_edit":"card_image_edit",scope,key,digest,
                 current.versionId(),current.revision(),payload,clock.instant());
+        billing.bind(id,operationId);
         return id;
     }
     @Transactional

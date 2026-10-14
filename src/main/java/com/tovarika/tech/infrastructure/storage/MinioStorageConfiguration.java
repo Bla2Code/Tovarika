@@ -18,6 +18,12 @@ public class MinioStorageConfiguration {
 		return MinioClient.builder()
 				.endpoint(properties.endpoint())
 				.credentials(properties.accessKey(), properties.secretKey())
+                .httpClient(new okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(java.time.Duration.ofSeconds(10))
+                        .readTimeout(java.time.Duration.ofSeconds(60))
+                        .writeTimeout(java.time.Duration.ofSeconds(60))
+                        .callTimeout(java.time.Duration.ofSeconds(90))
+                        .retryOnConnectionFailure(false).build())
 				.build();
 	}
 

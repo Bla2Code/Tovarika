@@ -13,16 +13,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class CardsController implements CardsApi {
     private final CardGenerationService cards;
+    private final CardJobBilling billing;
     private final WorkspaceIdentityResolver identities;
     private final AssetLinks links;
     private final com.tovarika.tech.cards.editing.application.CardImageEditingService edits;
 
     public CardsController(CardGenerationService cards, WorkspaceIdentityResolver identities, AssetLinks links,
-            com.tovarika.tech.cards.editing.application.CardImageEditingService edits) {
+            com.tovarika.tech.cards.editing.application.CardImageEditingService edits, CardJobBilling billing) {
         this.cards = cards;
         this.identities = identities;
         this.links = links;
         this.edits = edits;
+        this.billing = billing;
     }
 
     @Override
@@ -122,7 +124,7 @@ public class CardsController implements CardsApi {
     }
 
     private AsyncOperationDto accepted(String jobId,String cardId) {
-        return new AsyncOperationDto(jobId,"queued",new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD,cardId),1000);
+        return new AsyncOperationDto(jobId,"queued",new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD,cardId),1000).billing(billing.snapshot(jobId));
     }
 
     private com.tovarika.tech.cards.editing.domain.ImageEdit edit(ImageEditOperationDto operation) {
@@ -155,7 +157,7 @@ public class CardsController implements CardsApi {
 
     private AsyncOperationDto operation(CardGenerationJob job) {
         return new AsyncOperationDto(job.id(), "queued",
-                new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD, job.cardId()), 1000);
+                new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD, job.cardId()), 1000).billing(billing.snapshot(job.id()));
     }
 
     private CardDto dto(CardView card) {

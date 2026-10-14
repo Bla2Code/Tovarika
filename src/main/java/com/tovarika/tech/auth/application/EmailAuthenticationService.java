@@ -78,8 +78,13 @@ public class EmailAuthenticationService {
         } catch (DataIntegrityViolationException conflict) {
             throw AuthException.conflict(AuthErrorCode.EMAIL_ALREADY_REGISTERED, "Email is already registered");
         }
-        if (rawTrialToken != null && !rawTrialToken.isBlank()) {
-            store.convertTrial(opaqueTokens.hash(rawTrialToken), user.id(), now);
+        if (rawTrialToken != null) {
+            if (rawTrialToken.isBlank() || !store.convertTrial(opaqueTokens.hash(rawTrialToken), user.id(), now)) {
+                throw AuthException.unauthorized(AuthErrorCode.TRIAL_SESSION_NOT_FOUND,
+                        "Trial session is missing, invalid, expired or converted");
+            }
+        } else {
+            store.initializeBilling(user.id());
         }
         return new UserView(user, java.util.Set.of(AuthProvider.EMAIL));
     }
@@ -98,6 +103,7 @@ public class EmailAuthenticationService {
         if (!credentials.user().isActive()) {
             throw invalidCredentials();
         }
+        store.initializeBilling(credentials.user().id());
         return sessions.create(credentials.user(), metadata);
     }
 

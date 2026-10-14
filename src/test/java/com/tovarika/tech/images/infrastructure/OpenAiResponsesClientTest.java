@@ -344,6 +344,60 @@ class OpenAiResponsesClientTest {
                 new GenerationRequest.InputImage(TemplatePlaceholder.png(), "image/png", "product")), width, height);
     }
 
+    @Test
+    void freeAnalysisPropagatesJobAttemptAndKeepsActualUsageWithoutFinancialOperation() throws IOException {
+        var builder=RestClient.builder();var server=MockRestServiceServer.bindTo(builder).build();var client=client(builder);
+        var context=new com.tovarika.tech.billing.usage.AiCallContext(
+                new com.tovarika.tech.billing.usage.AiCallContext.Identity("analysis_jobs","job_free_analysis",3,null,"free_operation"),java.time.Clock.systemUTC());
+        var mapper=new ObjectMapper();
+        String text=mapper.writeValueAsString(java.util.Map.of("title","Mug","description","White mug","idea","Blue background"));
+        String response=mapper.writeValueAsString(java.util.Map.of("id","resp_free_analysis","model","actual-vision","status","completed",
+                "usage",java.util.Map.of("input_tokens",20,"output_tokens",5),"output",java.util.List.of(java.util.Map.of(
+                "type","message","content",java.util.List.of(java.util.Map.of("type","output_text","text",text))))));
+        server.expect(requestTo("https://api.openai.test/v1/responses")).andRespond(withSuccess(response,MediaType.APPLICATION_JSON));
+        var result=client.analyze("requested-vision","job_free_analysis",new byte[]{1},"image/png",context);
+        assertThat(result.title()).isEqualTo("Mug");assertThat(context.identity.operationId()).isNull();
+        assertThat(context.identity.attempt()).isEqualTo(3);
+        var call=context.calls().getFirst();assertThat(call.outcome).isEqualTo("successful");
+        assertThat(call.requestedMainModel).isEqualTo("requested-vision");assertThat(call.usage.actualMainModel()).isEqualTo("actual-vision");
+        assertThat(call.usage.components().getFirst().counters()).containsEntry("input_tokens",20L);
+        server.verify();
+    }
+    @Test
+    void contextCapturesUsageBeforeInvalidImageAndNeverCopiesResponsePayload() throws IOException {
+        var builder=RestClient.builder();var server=MockRestServiceServer.bindTo(builder).build();var client=client(builder);
+        var context=new com.tovarika.tech.billing.usage.AiCallContext(
+                new com.tovarika.tech.billing.usage.AiCallContext.Identity("project_jobs","job_context",2,"bop_context","free_entitlement"),java.time.Clock.systemUTC());
+        server.expect(requestTo("https://api.openai.test/v1/responses"))
+                .andRespond(withSuccess("""
+                        {"id":"resp_context","model":"actual-main","status":"completed","usage":{"input_tokens":10},
+                        "output":[{"type":"image_generation_call","id":"ig_context","quality":"high","size":"1024x1024","result":"INVALID_PRIVATE_IMAGE","revised_prompt":"PRIVATE_PROMPT"}]}
+                        """,MediaType.APPLICATION_JSON));
+        assertThatThrownBy(()->client.generate("requested-main","requested-image",request(16,16),context)).isInstanceOf(IllegalStateException.class);
+        assertThat(context.calls()).hasSize(1);var call=context.calls().getFirst();
+        assertThat(call.outcome).isEqualTo("error");assertThat(call.usage.responseId()).isEqualTo("resp_context");
+        assertThat(call.usage.actualMainModel()).isEqualTo("actual-main");assertThat(call.usage.components().get(1).actualModel()).isNull();
+        assertThat(new ObjectMapper().writeValueAsString(call.usage)).doesNotContain("PRIVATE","result","revised_prompt");
+        server.verify();
+    }
+    @Test
+    void capturesSuccessfulImageAndHttpFailureAndTimeoutAsSeparateCalls() throws IOException {
+        var builder=RestClient.builder();var server=MockRestServiceServer.bindTo(builder).build();var client=client(builder);
+        var context=new com.tovarika.tech.billing.usage.AiCallContext(
+                new com.tovarika.tech.billing.usage.AiCallContext.Identity("project_jobs","job_context",1,"bop_context","wallet"),java.time.Clock.systemUTC());
+        server.expect(requestTo("https://api.openai.test/v1/responses")).andRespond(imageResponse(TemplatePlaceholder.png()));
+        server.expect(requestTo("https://api.openai.test/v1/responses")).andRespond(
+                org.springframework.test.web.client.response.MockRestResponseCreators.withStatus(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS).body("PRIVATE_KEY"));
+        server.expect(requestTo("https://api.openai.test/v1/responses")).andRespond(
+                org.springframework.test.web.client.response.MockRestResponseCreators.withException(new java.net.SocketTimeoutException("PRIVATE_PROMPT")));
+        client.generate("main","image",request(16,16),context);
+        assertThatThrownBy(()->client.generate("main","image",request(16,16),context)).hasMessage("OpenAI image generation request failed");
+        assertThatThrownBy(()->client.generate("main","image",request(16,16),context)).hasMessage("OpenAI image generation request failed");
+        assertThat(context.calls()).extracting(c->c.outcome).containsExactly("successful","error","timeout");
+        assertThat(context.calls().get(1).httpStatus).isEqualTo(429);
+        assertThat(context.calls().get(2).usage.components()).isEmpty();
+        server.verify();
+    }
     private OpenAiResponsesClient client(RestClient.Builder builder) throws IOException {
         Path apiKeyFile = tempDir.resolve("openai_api_key");
         Files.writeString(apiKeyFile, "test-key\n");

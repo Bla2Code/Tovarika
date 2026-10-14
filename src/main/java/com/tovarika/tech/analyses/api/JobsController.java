@@ -12,15 +12,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class JobsController implements JobsApi {
     private final AnalysisService service;
+    private final com.tovarika.tech.cards.CardJobBilling billing;
     private final CardGenerationService cards;
     private final WorkspaceIdentityResolver identities;
     private final com.tovarika.tech.cards.editing.application.CardImageEditingService edits;
     private final com.tovarika.tech.exports.ExportService exports;
     public JobsController(AnalysisService service,CardGenerationService cards,WorkspaceIdentityResolver identities,
             com.tovarika.tech.cards.editing.application.CardImageEditingService edits,
-            com.tovarika.tech.exports.ExportService exports) {
+            com.tovarika.tech.exports.ExportService exports,com.tovarika.tech.cards.CardJobBilling billing) {
         this.service=service;this.cards=cards;this.identities=identities;this.edits=edits;
-        this.exports=exports;
+        this.exports=exports;this.billing=billing;
     }
     public ResponseEntity<JobDto> getJob(String id) {
         var owner=identities.resolve();
@@ -41,6 +42,7 @@ public class JobsController implements JobsApi {
                     new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD,job.cardId()),1000,
                     job.createdAt().atOffset(ZoneOffset.UTC));
             dto.baseVersionId(job.baseVersionId());
+            dto.billing(billing.snapshot(job.id()));
             dto.progress(switch(job.status()) {case "queued"->0;case "processing"->10;case "completed"->100;default->null;});
             if(job.startedAt()!=null) dto.startedAt(job.startedAt().atOffset(ZoneOffset.UTC));
             if(job.finishedAt()!=null) dto.finishedAt(job.finishedAt().atOffset(ZoneOffset.UTC));
@@ -55,6 +57,7 @@ public class JobsController implements JobsApi {
             var dto=new JobDto(job.id(),JobTypeDto.CARD_GENERATION,JobStatusDto.fromValue(job.status()),
                     new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD,job.cardId()),1000,
                     job.createdAt().atOffset(ZoneOffset.UTC));
+            dto.billing(billing.snapshot(job.id()));
             dto.progress(switch(job.status()) { case "queued" -> 0; case "processing" -> 10; case "completed" -> 100; default -> null; });
             if (job.startedAt()!=null) dto.startedAt(job.startedAt().atOffset(ZoneOffset.UTC));
             if (job.finishedAt()!=null) dto.finishedAt(job.finishedAt().atOffset(ZoneOffset.UTC));

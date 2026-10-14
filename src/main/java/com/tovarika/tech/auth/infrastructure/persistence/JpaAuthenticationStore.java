@@ -1,5 +1,7 @@
 package com.tovarika.tech.auth.infrastructure.persistence;
 
+import com.tovarika.tech.billing.domain.Billing.Owner;
+import com.tovarika.tech.billing.application.BillingService;
 import com.tovarika.tech.auth.application.port.AuthenticationStore;
 import com.tovarika.tech.auth.domain.AuthIdentity;
 import com.tovarika.tech.auth.domain.AuthProvider;
@@ -31,6 +33,7 @@ public class JpaAuthenticationStore implements AuthenticationStore {
     private final OAuthAttemptJpaRepository oauthAttempts;
     private final TrialSessionJpaRepository trialSessions;
     private final JdbcTemplate jdbc;
+    private final BillingService billing;
 
     public JpaAuthenticationStore(
             UserJpaRepository users,
@@ -40,7 +43,8 @@ public class JpaAuthenticationStore implements AuthenticationStore {
             PasswordResetTokenJpaRepository resetTokens,
             OAuthAttemptJpaRepository oauthAttempts,
             TrialSessionJpaRepository trialSessions,
-            JdbcTemplate jdbc) {
+            JdbcTemplate jdbc,
+            BillingService billing) {
         this.users = users;
         this.identities = identities;
         this.sessions = sessions;
@@ -49,6 +53,7 @@ public class JpaAuthenticationStore implements AuthenticationStore {
         this.oauthAttempts = oauthAttempts;
         this.trialSessions = trialSessions;
         this.jdbc = jdbc;
+        this.billing = billing;
     }
 
     @Override
@@ -225,10 +230,14 @@ public class JpaAuthenticationStore implements AuthenticationStore {
     @Override
     @Transactional
     public boolean convertTrial(String trialTokenHash, String userId, Instant now) {
+        users.flush(); // JDBC shares the JPA transaction, but does not flush pending user inserts.
+        jdbc.queryForList("select id from users where id=? for update", userId);
         TrialSessionEntity trial = trialSessions.findByTokenHash(trialTokenHash).orElse(null);
         if (trial == null || trial.owner != null || !now.isBefore(trial.expiresAt)) {
             return false;
         }
+        billing.convertOwner(new Owner("trial", trial.id),
+                new Owner("user", userId));
         trial.owner = users.getReferenceById(userId);
         trial.convertedAt = now;
         // JDBC does not trigger JPA auto-flush; the new user must exist before the ownership FK update.
@@ -238,6 +247,29 @@ public class JpaAuthenticationStore implements AuthenticationStore {
                 userId,
                 trial.id);
         return true;
+    }
+
+    @Override
+    @Transactional
+    public void initializeBilling(String userId) {
+        users.flush();
+        var rows = jdbc.queryForList("select id from users where id=? and status='ACTIVE' for update", String.class, userId);
+        if (rows.isEmpty()) return; // Identity availability is enforced by auth; never grant an unknown owner.
+        var user = new Owner("user", userId);
+        var trials = jdbc.queryForList("select id from trial_sessions where owner_user_id=? order by id for update", String.class, userId);
+        for (String trialId : trials) {
+            boolean linked = jdbc.queryForObject("""
+                    select exists(select 1 from billing_owners t
+                    join billing_wallets tw on tw.account_id=t.account_id
+                    join billing_wallet_links tl on tl.wallet_id=tw.id
+                    join billing_owners u on u.kind='user' and u.subject=?
+                    join billing_wallets uw on uw.account_id=u.account_id
+                    join billing_wallet_links ul on ul.wallet_id=uw.id
+                    where t.kind='trial' and t.subject=? and tl.canonical_wallet_id=ul.canonical_wallet_id)
+                    """, Boolean.class, userId, trialId);
+            if (!linked) billing.convertOwner(new Owner("trial", trialId), user);
+        }
+        billing.grantTrial(user, "user:" + userId);
     }
 
     private UserAccount toDomain(UserEntity entity) {

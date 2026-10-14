@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 022-billing-free-history
+      author: codex
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/022-billing-free-history.sql
+            splitStatements: false

@@ -18,6 +18,7 @@ import java.io.IOException;
 @Component
 @ConditionalOnProperty(name = "tovarika.ai.openai.mode", havingValue = "stub", matchIfMissing = true)
 public class StubOpenAiClient implements OpenAiClient {
+    @Override public boolean stub() { return true; }
     public StubOpenAiClient(OpenAiProperties properties) {}
 
     public GeneratedImage generate(String mainModel, String imageModel, GenerationRequest request) {

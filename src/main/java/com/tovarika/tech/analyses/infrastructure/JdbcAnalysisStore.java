@@ -12,7 +12,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JdbcAnalysisStore implements AnalysisStore {
     private final JdbcTemplate jdbc;
-    public JdbcAnalysisStore(JdbcTemplate jdbc) { this.jdbc=jdbc; }
+    private final com.tovarika.tech.billing.application.BillingActivity activity;
+    public JdbcAnalysisStore(JdbcTemplate jdbc,com.tovarika.tech.billing.application.BillingActivity activity) { this.jdbc=jdbc;this.activity=activity; }
     public void lockOwner(String userId, String trialId) {
         var rows = userId != null
                 ? jdbc.queryForList("select id from users where id = ? and status = 'ACTIVE' for update", String.class, userId)
@@ -24,11 +25,17 @@ public class JdbcAnalysisStore implements AnalysisStore {
                 (r,n) -> new Product(r.getString("id"), r.getString("status"), r.getString("analysis_job_id")), id, userId, trialId)
                 .stream().findFirst().orElseThrow(() -> new ApiFailure(404, "PRODUCT_NOT_FOUND", "Product not found"));
     }
-    public Optional<AnalysisJob> previous(String key, String userId, String trialId) {
-        return jdbc.query("""
+    public Optional<AnalysisJob> previous(String key, String userId, String trialId, String productId) {
+        var rows = jdbc.query("""
                 select j.* from analysis_jobs j join products p on p.id=j.product_id
-                where j.idempotency_key=? and (p.owner_user_id=? or p.owner_trial_session_id=?) order by j.created_at
-                """, (r,n)->job(r), key, userId, trialId).stream().findFirst();
+                where j.idempotency_key=? and (p.owner_user_id=? or p.owner_trial_session_id=?) order by j.created_at,j.id
+                """, (r,n) -> job(r), key,userId,trialId);
+        if (rows.size() > 1) {
+            rows = rows.stream().filter(j -> j.productId().equals(productId)).toList();
+            if (rows.size() != 1) throw new ApiFailure(
+                    409,"IDEMPOTENCY_CONFLICT","Ambiguous command lineage");
+        }
+        return rows.stream().findFirst();
     }
     public void enqueue(AnalysisJob j, String scope, String key) {
         jdbc.update("""
@@ -70,6 +77,7 @@ public class JdbcAnalysisStore implements AnalysisStore {
                     created_at=excluded.created_at,updated_at=excluded.updated_at
                 """,j.analysisId(),j.productId(),result.title(),result.description(),result.idea(),prompt,Timestamp.from(now),Timestamp.from(now));
         terminal(j,"completed","analysis_ready",now);
+        activity.analysisJob(j.id());
         return true;
     }
     public boolean fail(AnalysisJob j, Instant now) {
