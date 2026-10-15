@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 023-registration-onboarding
+      author: tovarika
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/023-registration-onboarding.sql
+            splitStatements: false

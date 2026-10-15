@@ -24,6 +24,10 @@ GET jobs → JobsController → analyses / cards / cards.editing
 | `analyses` | `AnalysisStore`, `AnalysisProvider`, `ProductStorage`, `GenerationPromptBuilder` |
 | `cards` | `CardGenerationStore`, `TemplateService`, `CardPromptCompiler`, `ImageGenerationService`, `ProductStorage` |
 | `images` | `ImageGenerator`/`ImageEditor`, Spring registry и инфраструктурный `OpenAiClient` |
+| Card generation/edit/resize | `CardJobBilling` → `BillingService`/`BillingStore`: immutable price, reserve, fence, capture/release |
+| Trial/auth | `BillingService`: grant и conversion/merge в общей транзакции с ownership |
+| Успешные generation/edit/analysis jobs | `BillingActivity`: durable history receipt в транзакции результата |
+| AI workers/adapters | `AiCallContext`/`AiUsageService`: отдельный технический учёт вызовов |
 | HTTP assets и DTO | `AssetLinks`, доставка через backend; клиент не получает object key |
 
 ## 2. UI и фоновые операции
@@ -34,6 +38,9 @@ GET jobs → JobsController → analyses / cards / cards.editing
   поля, сохраняет jobId и опрашивает `GET /api/v1/jobs/{id}`.
 - Асинхронный HTTP-запуск сохраняет состояние в PostgreSQL; worker вызывает провайдера
   после короткой claim-транзакции. Не удерживай транзакцию БД во время AI-запроса.
+- Admission/reserve/job и terminal result/capture либо release атомарны; finance locks берутся
+  до domain locks. Free history receipt не берёт новый wallet lock после domain result.
+  Порядок guards, gates, replay и исключения analysis — [BILLING.md](BILLING.md).
 
 ## 3. Правила развития и текущие исключения
 
@@ -51,7 +58,8 @@ GET jobs → JobsController → analyses / cards / cards.editing
   backend возвращает следующую пользовательскую идею, UI хранит несохранённый draft,
   а backend собирает технический prompt и назначает позицию при enqueue.
 - Конвертация trial расширяет существующий `AuthenticationStore.convertTrial`;
-  billing/quota не становятся claims JWT. См. [TRIAL.md](TRIAL.md), [SECURITY.md](SECURITY.md).
+  credits/entitlements не становятся claims JWT. См. [TRIAL.md](TRIAL.md), [BILLING.md](BILLING.md),
+  [SECURITY.md](SECURITY.md).
 
 Bitmap editing и Undo используют порты `ImageEditingStore`, `ImageGenerationService` и
 существующий ProductStorage; сценарий и инварианты — [IMAGE_EDITING.md](IMAGE_EDITING.md).

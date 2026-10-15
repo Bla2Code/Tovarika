@@ -1,0 +1,11 @@
+{
+  "id":"resp_fixture", "model":"main-actual-2026-10-01", "status":"completed",
+  "created_at":1791936000, "completed_at":1791936005,
+  "usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":20,"cache_write_tokens":10},
+    "output_tokens":50,"output_tokens_details":{"reasoning_tokens":30},"total_tokens":150},
+  "output":[{"type":"image_generation_call","id":"ig_fixture","status":"completed",
+    "size":"1024x1536","quality":"high","result":"PRIVATE_IMAGE_PAYLOAD","revised_prompt":"PRIVATE_PROMPT",
+    "usage":{"input_tokens":40,"input_tokens_details":{"text_tokens":10,"image_tokens":30},"output_tokens":60,"total_tokens":100}}],
+  "instructions":"PRIVATE_INSTRUCTIONS", "metadata":{"api_key":"PRIVATE_KEY"},
+  "input":[{"image_url":"PRIVATE_DATA_URL"}]
+}

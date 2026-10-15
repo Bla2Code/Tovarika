@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 017-billing-core
+      author: codex
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/017-billing-core.sql
+            splitStatements: false

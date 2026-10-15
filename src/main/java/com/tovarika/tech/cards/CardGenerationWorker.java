@@ -1,5 +1,7 @@
 package com.tovarika.tech.cards;
 
+import com.tovarika.tech.billing.usage.AiUsageService;
+
 import com.tovarika.tech.images.application.GenerationRequest;
 import com.tovarika.tech.images.application.ImageGenerationService;
 import com.tovarika.tech.products.application.ProductStorage;
@@ -19,27 +21,30 @@ public class CardGenerationWorker {
     private final ImageGenerationService images;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final AiUsageService usage;
+    private final com.tovarika.tech.billing.recovery.AiJobRecovery recovery;
     private final MeterRegistry metrics;
 
     public CardGenerationWorker(CardGenerationStore store, ProductStorage storage,
-            ImageGenerationService images, TransactionTemplate transactions, Clock clock, MeterRegistry metrics) {
+            ImageGenerationService images, TransactionTemplate transactions, Clock clock, MeterRegistry metrics,AiUsageService usage, com.tovarika.tech.billing.recovery.AiJobRecovery recovery) {
         this.store = store;
         this.storage = storage;
         this.images = images;
         this.transactions = transactions;
         this.clock = clock;
-        this.metrics = metrics;
+        this.metrics = metrics;this.usage=usage;this.recovery=recovery;
     }
 
     public boolean runOnce() {
-        var claimed = transactions.execute(tx -> store.claim(clock.instant(), clock.instant().plusSeconds(300)));
+        var claimed = transactions.execute(tx -> store.claim(clock.instant(), clock.instant().plus(com.tovarika.tech.billing.recovery.AiJobRecovery.LEASE)));
         if (claimed == null || claimed.isEmpty()) return false;
         var job = claimed.get();
+        var context=usage.context("project_jobs",job.id(),job.attempt());
         Timer.Sample sample = Timer.start(metrics);
-        String outcome = "failed";
+        String outcome = "unknown";
         String generatedKey = null;
-        try {
-            if (job.attempt() > 3) throw new IllegalStateException("Recovery attempts exhausted");
+        try (var lease=recovery.start("project_jobs",job.id(),job.attempt())) {
+            recovery.check(job.attempt(),job.createdAt());
             var source = store.source(job);
             var inputImages = new ArrayList<GenerationRequest.InputImage>();
             inputImages.add(new GenerationRequest.InputImage(
@@ -52,7 +57,7 @@ public class CardGenerationWorker {
             }
             int[] size = dimensions(source.aspectRatio());
             var generated = images.generate("chatgpt",
-                    new GenerationRequest(source.prompt(), inputImages, size[0], size[1]));
+                    new GenerationRequest(source.prompt(), inputImages, size[0], size[1]),context);
             String assetId = id("asset_");
             generatedKey = "cards/" + assetId;
             storage.put(generatedKey, generated.bytes(), generated.mediaType());
@@ -60,15 +65,15 @@ public class CardGenerationWorker {
                     generated.bytes().length, generated.width(), generated.height());
             boolean applied = Boolean.TRUE.equals(
                     transactions.execute(tx -> store.complete(job, asset, clock.instant())));
-            if (!applied) storage.delete(generatedKey);
+            if (!applied) recovery.deleteUnreferenced(storage,generatedKey);
             outcome = applied ? "completed" : "stale";
         } catch (RuntimeException failure) {
-            if (generatedKey != null) {
-                try { storage.delete(generatedKey); } catch (RuntimeException ignored) { /* best effort */ }
-            }
+            // Resolves a possibly committed terminal transition under the job lock before cleanup.
             boolean applied = Boolean.TRUE.equals(transactions.execute(tx -> store.fail(job, clock.instant())));
+            if (generatedKey != null) recovery.deleteUnreferenced(storage,generatedKey);
             outcome = applied ? "failed" : "stale";
         } finally {
+            usage.finish(context,outcome);
             sample.stop(metrics.timer("tovarika.card.generation.latency", "outcome", outcome));
             metrics.counter("tovarika.card.generation.operations", "outcome", outcome).increment();
         }

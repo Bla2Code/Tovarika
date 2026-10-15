@@ -85,8 +85,10 @@ public class AuthenticationController implements AuthenticationApi {
                 Scope.LOGIN,
                 requestContext.rateLimitSubject(EmailNormalizer.normalize(request.getEmail())),
                 properties.rateLimit().login());
+        String trialToken = requestContext.optionalPrincipal() == null
+                ? requestContext.cookie(cookies.trialCookieName()) : null;
         return tokenResponse(emailAuthentication.login(
-                request.getEmail(), request.getPassword(), requestContext.metadata()));
+                request.getEmail(), request.getPassword(), requestContext.metadata(), trialToken), trialToken != null);
     }
 
     @Override
@@ -202,8 +204,13 @@ public class AuthenticationController implements AuthenticationApi {
     }
 
     private ResponseEntity<AccessTokenDto> tokenResponse(SessionGrant grant) {
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookies.createRefresh(grant.rawRefreshToken()).toString())
-                .body(mapper.accessToken(grant));
+        return tokenResponse(grant, false);
+    }
+
+    private ResponseEntity<AccessTokenDto> tokenResponse(SessionGrant grant, boolean clearTrial) {
+        var response = ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookies.createRefresh(grant.rawRefreshToken()).toString());
+        if (clearTrial) response.header(HttpHeaders.SET_COOKIE, cookies.clearTrial().toString());
+        return response.body(mapper.accessToken(grant));
     }
 }

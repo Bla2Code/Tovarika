@@ -27,7 +27,7 @@ public class JdbcTrialSessionStore implements TrialSessionStore {
     public Optional<TrialSession> findAvailable(String tokenHash, Instant now) {
         return jdbc.query("""
                 select id, generation_limit, generations_used, created_at, expires_at from trial_sessions
-                where token_hash = ? and owner_user_id is null and converted_at is null and expires_at > ?
+                where token_hash = ? and owner_user_id is null and converted_at is null and expires_at > ? for update
                 """, (row, index) -> new TrialSession(row.getString("id"), row.getInt("generation_limit"),
                 row.getInt("generations_used"), row.getTimestamp("created_at").toInstant(),
                 row.getTimestamp("expires_at").toInstant()), tokenHash, Timestamp.from(now)).stream().findFirst();

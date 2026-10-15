@@ -33,3 +33,17 @@ databaseChangeLog:
       file: db/changelog/changes/015-card-image-redo.yaml
   - include:
       file: db/changelog/changes/016-card-exports.yaml
+  - include:
+      file: db/changelog/changes/017-billing-core.yaml
+  - include:
+      file: db/changelog/changes/018-billing-trial.yaml
+  - include:
+      file: db/changelog/changes/019-billing-ai-operations.yaml
+  - include:
+      file: db/changelog/changes/020-billing-ai-usage.yaml
+  - include:
+      file: db/changelog/changes/021-billing-recovery.yaml
+  - include:
+      file: db/changelog/changes/022-billing-free-history.yaml
+  - include:
+      file: db/changelog/changes/023-registration-onboarding.yaml

@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 019-billing-ai-operations
+      author: codex
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/019-billing-ai-operations.sql
+            splitStatements: false

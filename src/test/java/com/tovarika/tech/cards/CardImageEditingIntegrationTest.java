@@ -70,6 +70,12 @@ class CardImageEditingIntegrationTest {
     }
     @AfterEach void cleanup(){storage.failReads=false;jdbc.execute("truncate projects,cards,project_jobs cascade");}
 
+    @Test void billingAdmissionIsDisabledByDefault() {
+        var job=complete("default-gate-edit",entire);
+        assertThat(jdbc.queryForObject("select count(*) from project_jobs where billing_operation_id is not null",Integer.class)).isZero();
+        assertThat(job.status()).isEqualTo("ready");
+    }
+
     @Test void threeEditsUndoAndRedoRestoreExactAssetsAcrossReloadAndKeepCountAndPreview() throws Exception {
         var original=current();String preview=jdbc.queryForObject("select preview_asset_id from projects where id='prj_edit'",String.class);
         var first=complete("edit-first-key",entire);
@@ -335,33 +341,21 @@ class CardImageEditingIntegrationTest {
                 .andExpect(status().isCreated()).andReturn().getResponse().getCookie("__Host-tovarika_trial");
         String trial=jdbc.queryForObject("select id from trial_sessions",String.class);
         jdbc.update("update products set owner_user_id=null,owner_trial_session_id=? where id='prd_edit'",trial);
-        String undo=guard(cards.getCard("prj_edit",cardId,null,trial));
+        var beforeTrial=cards.getCard("prj_edit",cardId,null,trial);
+        String undo=guard(beforeTrial);
         mvc.perform(post(path+"/undo").cookie(cookie).header("Idempotency-Key","trial-undo-key")
                 .contentType("application/json").content(undo)).andExpect(status().isForbidden());
         mvc.perform(post(path+"/undo").cookie(cookie).header("Origin","https://unknown.test").header("Idempotency-Key","trial-undo-key")
                 .contentType("application/json").content(undo)).andExpect(status().isForbidden());
         mvc.perform(post(path+"/undo").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","trial-undo-key")
-                .contentType("application/json").content(undo)).andExpect(status().isOk());
-        String redo=guard(cards.getCard("prj_edit",cardId,null,trial));
-        mvc.perform(post(path+"/redo").header("Idempotency-Key","redo-no-identity").contentType("application/json").content(redo))
-                .andExpect(status().isUnauthorized());
-        mvc.perform(post(path+"/redo").header("Authorization","Bearer "+token).header("Idempotency-Key","redo-other-owner")
-                .contentType("application/json").content(redo)).andExpect(status().isNotFound());
-        mvc.perform(post(path.replace("prj_edit","prj_missing")+"/redo").cookie(cookie).header("Origin","https://ui.test")
-                .header("Idempotency-Key","redo-missing-project").contentType("application/json").content(redo)).andExpect(status().isNotFound());
-        for(String origin:java.util.List.of("","https://unknown.test")) {
-            var request=post(path+"/redo").cookie(cookie).header("Idempotency-Key","trial-redo-key").contentType("application/json").content(redo);
-            if(!origin.isEmpty()) request.header("Origin",origin);
-            mvc.perform(request).andExpect(status().isForbidden());
-        }
-        mvc.perform(post(path+"/redo").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","redo-extra-key")
-                .contentType("application/json").content(redo.replace("}",",\"extra\":1}")))
-                .andExpect(status().isUnprocessableEntity());
+                .contentType("application/json").content(undo)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("REGISTRATION_REQUIRED"));
         mvc.perform(post(path+"/redo").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","trial-redo-key")
-                .contentType("application/json").content(redo)).andExpect(status().isOk()).andExpect(jsonPath("$.canRedo").value(false));
+                .contentType("application/json").content(undo)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("REGISTRATION_REQUIRED"));
         String trialBody=request(cards.getCard("prj_edit",cardId,null,trial),"{\"kind\":\"entire\",\"prompt\":\"Change\"}");
-        mvc.perform(post(path+"/image-edits").cookie(cookie).header("Idempotency-Key","trial-edit-key").contentType("application/json").content(trialBody)).andExpect(status().isForbidden());
-        mvc.perform(post(path+"/image-edits").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","trial-edit-key").contentType("application/json").content(trialBody)).andExpect(status().isAccepted());
+        mvc.perform(post(path+"/image-edits").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","trial-edit-key")
+                .contentType("application/json").content(trialBody)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("REGISTRATION_REQUIRED"));
+        assertThat(cards.getCard("prj_edit",cardId,null,trial).currentVersionId()).isEqualTo(beforeTrial.currentVersionId());
+
     }
 
     @Test void simultaneousCommandsAllowOnlyOnePendingEdit() throws Exception {

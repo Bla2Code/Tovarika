@@ -68,5 +68,7 @@ public interface AuthenticationStore {
 
     boolean consumeOAuthAttempt(String attemptId, Instant now);
 
+    void initializeBilling(String userId);
+
     boolean convertTrial(String trialTokenHash, String userId, Instant now);
 }

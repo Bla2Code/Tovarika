@@ -1,5 +1,7 @@
 package com.tovarika.tech.cards.editing.application;
 
+import com.tovarika.tech.billing.usage.AiUsageService;
+
 import com.tovarika.tech.cards.editing.domain.ImageEdit;
 import com.tovarika.tech.products.application.ProductStorage;
 import com.tovarika.tech.images.infrastructure.OpenAiResponsesClient.ImageEditFailure;
@@ -20,35 +22,42 @@ public class CardImageEditingWorker {
     private final TransactionTemplate transactions;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final AiUsageService usage;
+    private final com.tovarika.tech.billing.recovery.AiJobRecovery recovery;
     public CardImageEditingWorker(ImageEditingStore store,ProductStorage storage,CardImageProcessor processor,
-            TransactionTemplate transactions,ObjectMapper mapper,Clock clock) {
-        this.store=store;this.storage=storage;this.processor=processor;this.transactions=transactions;this.mapper=mapper;this.clock=clock;
+            TransactionTemplate transactions,ObjectMapper mapper,Clock clock,AiUsageService usage, com.tovarika.tech.billing.recovery.AiJobRecovery recovery) {
+        this.store=store;this.storage=storage;this.processor=processor;this.transactions=transactions;this.mapper=mapper;this.clock=clock;this.usage=usage;this.recovery=recovery;
     }
     public boolean runOnce() {
         var claimed=transactions.execute(tx->store.claim(clock.instant()));
         if(claimed==null || claimed.isEmpty()) return false;
         var job=claimed.get();String key=null;
-        try {
-            if(job.attempt()>3) throw new IllegalStateException("Recovery attempts exhausted");
+        var context=usage.context("project_jobs",job.id(),job.attempt());
+        String outcome="unknown";
+        try (var lease=recovery.start("project_jobs",job.id(),job.attempt())) {
+            recovery.check(job.attempt(),job.createdAt());
             var source=store.source(job);
             var edit=mapper.readValue(job.payload(),ImageEdit.class);
-            var result=processor.process(storage.read(source.storageKey()),edit);
+            var result=processor.process(storage.read(source.storageKey()),edit,context);
             String id="asset_"+UUID.randomUUID().toString().replace("-","");key="cards/"+id;
             storage.put(key,result.bytes(),"image/png");
             var output=new ImageEditingStore.Output(id,key,result.bytes().length,result.width(),result.height(),result.hasAlpha());
-            if(!Boolean.TRUE.equals(transactions.execute(tx->store.complete(job,output,clock.instant())))) delete(key);
+            boolean applied=Boolean.TRUE.equals(transactions.execute(tx->store.complete(job,output,clock.instant(),result.aiCalled())));
+            if(!applied) delete(key);
+            outcome=applied?"completed":"stale";
         } catch(RuntimeException failure) {
-            if(key!=null) delete(key);
             if (failure instanceof ImageEditFailure providerFailure)
                 log.warn("Card image edit failed: job={}, reason={}, providerStatus={}",
                         job.id(), providerFailure.reason(), providerFailure.httpStatus());
             else log.warn("Card image edit failed: job={}, exceptionType={}", job.id(), failure.getClass().getSimpleName());
             String code=failure instanceof UnsupportedOperationException?"IMAGE_EDIT_UNAVAILABLE":"GENERATION_FAILED";
-            transactions.executeWithoutResult(tx->store.fail(job,code,clock.instant()));
-        }
+            boolean applied=Boolean.TRUE.equals(transactions.execute(tx->store.fail(job,code,clock.instant())));
+            if(key!=null) delete(key);
+            outcome=applied?"failed":"stale";
+        } finally { usage.finish(context,outcome); }
         return true;
     }
     private void delete(String key) {
-        try { storage.delete(key); } catch(RuntimeException ignored) { /* Durable object GC is a separate existing concern. */ }
+        recovery.deleteUnreferenced(storage,key);
     }
 }

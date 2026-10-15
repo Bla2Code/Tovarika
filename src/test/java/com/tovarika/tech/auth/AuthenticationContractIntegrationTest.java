@@ -1,6 +1,10 @@
 package com.tovarika.tech.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.tovarika.tech.billing.domain.Billing.*;
+import com.tovarika.tech.billing.application.BillingService;
+import com.tovarika.tech.billing.application.BillingFailure;
+import com.tovarika.tech.trial.application.TrialSessionService;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -120,15 +124,25 @@ class AuthenticationContractIntegrationTest {
     @Autowired FakeYandexOAuthClient yandexClient;
     @Autowired WebApplicationContext applicationContext;
     @Autowired TransactionTemplate transactions;
+    @Autowired BillingService billing;
+    @Autowired TrialSessionService trialService;
+    @Autowired com.tovarika.tech.cards.CardGenerationStore generationStore;
+    @Autowired com.tovarika.tech.cards.CardGenerationService generationService;
+    @Autowired com.tovarika.tech.cards.editing.application.CardImageEditingService editingService;
+    @Autowired com.tovarika.tech.cards.editing.application.ImageEditingStore editingStore;
+    @Autowired com.tovarika.tech.analyses.application.AnalysisService analysisService;
+    @Autowired com.tovarika.tech.analyses.application.AnalysisStore analysisStore;
 
     MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         jdbc.execute("""
-                TRUNCATE TABLE authentication_rate_limits, oauth_attempts, password_reset_tokens,
+                TRUNCATE TABLE billing_accounts, authentication_rate_limits, oauth_attempts, password_reset_tokens,
                     refresh_tokens, auth_sessions, auth_identities, trial_sessions, users CASCADE
                 """);
+        // Exercise historical grants/conversion with the original published price fixture.
+        jdbc.update("update billing_configuration set active_version='billing-2026-10-14-v1'");
         messages.clear();
         yandexClient.reset();
         mockMvc = MockMvcBuilders.webAppContextSetup(applicationContext).apply(springSecurity()).build();
@@ -634,7 +648,7 @@ class AuthenticationContractIntegrationTest {
                     mockMvc.perform(request.cookie(cookie).header("Origin", "https://ui.test"))
                             .andExpect(status().isOk())
                             .andExpect(jsonPath("$.id").value(id))
-                            .andExpect(jsonPath("$.status").value(used == 3 ? "exhausted" : "active"))
+                            .andExpect(jsonPath("$.status").value("active"))
                             .andExpect(jsonPath("$.generationsUsed").value(used))
                             .andExpect(jsonPath("$.remainingGenerations").value(3 - used))
                             .andExpect(header().doesNotExist("Set-Cookie"));
@@ -819,6 +833,327 @@ class AuthenticationContractIntegrationTest {
                     second.get(20, java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder(201, 429);
         }
         assertThat(jdbc.queryForObject("select count(*) from trial_sessions", Integer.class)).isEqualTo(10);
+    }
+
+    private Owner trialOwner(Cookie cookie) {
+        return new Owner("trial", trialService.get(cookie.getValue()).id());
+    }
+
+    private Command billingCommand(String key,
+            Code code, String subject) {
+        return new Command("trial-test", key, 1, Map.of(1, "a".repeat(64)),
+                code, subject, "trial-test", "job_" + java.util.UUID.randomUUID());
+    }
+
+    private OAuthCompletion completeOAuth(String rawTrial) {
+        var start = yandexOAuth.start("/editor");
+        String state = UriComponentsBuilder.fromUri(start.authorizationUrl()).build().getQueryParams().getFirst("state");
+        return yandexOAuth.complete(start.rawCorrelationToken(), state, "test-code", null, rawTrial, METADATA);
+    }
+
+    @Test
+    void trial_grant_is_once_under_parallel_bootstrap_and_preserves_configuration_snapshot() throws Exception {
+        Cookie cookie = newTrialCookie();
+        var owner = trialOwner(cookie);
+        var initial = billing.wallet(owner);
+        try (var executor = Executors.newFixedThreadPool(8)) {
+            var futures = new java.util.ArrayList<Future<?>>();
+            for (int i=0; i<8; i++) futures.add(executor.submit(() -> {
+                assertThat(trialService.bootstrap(cookie.getValue(), "ignored-existing-cookie").session().wallet().id())
+                        .isEqualTo(initial.id());
+            }));
+            for (var future : futures) future.get(20, java.util.concurrent.TimeUnit.SECONDS);
+        }
+        assertThat(billing.wallet(owner).totalUnits()).isEqualTo(600);
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants", Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where kind='trial_grant'", Long.class)).isEqualTo(1);
+        String version = "trial-snapshot-test";
+        jdbc.update("insert into billing_price_versions(id,trial_allowance_units,free_entire_successes,effective_from,change_reason) values(?,800,1,clock_timestamp(),'test')",version);
+        jdbc.update("insert into billing_prices select ?,operation_code,amount_units from billing_prices where version_id='billing-2026-10-14-v1'",version);
+        jdbc.update("update billing_price_versions set published_at=clock_timestamp() where id=?",version);
+        jdbc.update("update billing_configuration set active_version=?",version);
+        try {
+            assertThat(trialService.get(cookie.getValue()).allowanceUnits()).isEqualTo(600);
+            assertThat(trialService.bootstrap(null,"new-config-identity").session().allowanceUnits()).isEqualTo(800);
+        } finally { jdbc.update("update billing_configuration set active_version='billing-2026-10-14-v1'"); }
+    }
+
+    @Test
+    void email_conversion_keeps_pending_money_free_right_and_replay_with_no_registration_grant() throws Exception {
+        Cookie cookie = newTrialCookie();
+        var owner = trialOwner(cookie);
+        var command = billingCommand("pending", Code.image_generation, null);
+        var freeCommand = billingCommand("free", Code.image_entire_edit, "stable-card");
+        var paid = transactions.execute(status -> billing.admit(owner,command).operation());
+        var free = transactions.execute(status -> billing.admit(owner,freeCommand).operation());
+        var user = emailAuthentication.register("pending-trial@example.com", PASSWORD, null, cookie.getValue());
+        var registered = new Owner("user",user.user().id());
+        assertThat(billing.wallet(registered).id()).isEqualTo(paid.walletId());
+        assertThat(billing.wallet(registered).reservedUnits()).isEqualTo(400);
+        assertThat(billing.wallet(registered).availableUnits()).isEqualTo(200);
+        assertThat(transactions.execute(status -> billing.admit(registered,command)).operation().snapshot()).isEqualTo(paid.snapshot());
+        assertThat(transactions.execute(status -> billing.admit(registered,freeCommand)).operation().snapshot()).isEqualTo(free.snapshot());
+        assertThat(transactions.<Boolean>execute(status -> billing.finish(paid.snapshot().operationId(),0,
+                Outcome.captured))).isTrue();
+        transactions.execute(status -> billing.finish(free.snapshot().operationId(),0,
+                Outcome.captured));
+        emailAuthentication.login("pending-trial@example.com",PASSWORD,METADATA);
+        assertThat(billing.wallet(registered).totalUnits()).isEqualTo(200);
+        assertThat(billing.wallet(registered).reservedUnits()).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants",Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where kind='ai_debit'",Long.class)).isEqualTo(1);
+        assertThatThrownBy(() -> trialService.get(cookie.getValue())).isInstanceOf(AuthException.class);
+        // A technical failure/retry returns the right only before a successful consume.
+        var next = billingCommand("after-free",Code.image_entire_edit,"stable-card");
+        assertThatThrownBy(() -> transactions.execute(status -> billing.admit(registered,next)))
+                .isInstanceOf(BillingFailure.class);
+    }
+
+    @Test
+    void oauth_conversion_to_new_user_retains_pending_operation() throws Exception {
+        Cookie cookie = newTrialCookie(); var owner = trialOwner(cookie);
+        var command = billingCommand("oauth-new",Code.image_generation,null);
+        var op = transactions.execute(status -> billing.admit(owner,command).operation());
+        var completion = completeOAuth(cookie.getValue());
+        var user = new Owner("user",completion.grant().user().user().id());
+        assertThat(jdbc.queryForObject("select completed_at is null from registration_onboarding where user_id=?",Boolean.class,user.id())).isTrue();
+        assertThat(billing.wallet(user).id()).isEqualTo(op.walletId());
+        transactions.execute(status -> billing.finish(op.snapshot().operationId(),0,Outcome.released));
+        assertThat(billing.wallet(user).availableUnits()).isEqualTo(600);
+        assertThat(transactions.execute(status -> billing.admit(user,command)).operation().state()).isEqualTo("released");
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants",Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void oauth_merge_preserves_both_grants_history_pending_reserves_and_receipts() throws Exception {
+        var existing = completeOAuth(null);
+        var user = new Owner("user",existing.grant().user().user().id());
+        Cookie cookie = newTrialCookie(); var trial = trialOwner(cookie);
+        var userCommand = billingCommand("user-key",Code.image_generation,null);
+        var trialCommand = billingCommand("trial-key",Code.image_region_edit,null);
+        var first = transactions.execute(status -> billing.admit(user,userCommand).operation());
+        var second = transactions.execute(status -> billing.admit(trial,trialCommand).operation());
+        var before = jdbc.queryForList("select * from billing_ledger order by id");
+        var converted = completeOAuth(cookie.getValue());
+        assertThat(converted.grant().user().user().id()).isEqualTo(user.id());
+        assertThat(billing.wallet(user).totalUnits()).isEqualTo(1200);
+        assertThat(billing.wallet(user).reservedUnits()).isEqualTo(600);
+        assertThat(jdbc.queryForList("select * from billing_ledger order by id")).isEqualTo(before);
+        assertThat(transactions.execute(status -> billing.admit(user,userCommand)).operation().snapshot()).isEqualTo(first.snapshot());
+        assertThat(transactions.execute(status -> billing.admit(user,trialCommand)).operation().snapshot()).isEqualTo(second.snapshot());
+        transactions.execute(status -> billing.finish(first.snapshot().operationId(),0,Outcome.captured));
+        transactions.execute(status -> billing.finish(second.snapshot().operationId(),0,Outcome.captured));
+        assertThat(billing.wallet(user).totalUnits()).isEqualTo(600);
+        assertThat(billing.wallet(user).usedUnits()).isEqualTo(600);
+        assertThat(billing.wallet(user).reservedUnits()).isZero();
+        var history = billing.history(user,new HistoryQuery(null,null,"oldest",10,null));
+        assertThat(history.items()).hasSize(4);
+        assertThat(history.items()).extracting(Entry::kind)
+                .containsExactly("trial_grant","trial_grant","ai_debit","ai_debit");
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants",Long.class)).isEqualTo(2);
+        store.initializeBilling(user.id());
+        assertThat(billing.wallet(user).totalUnits()).isEqualTo(600);
+    }
+
+    @Test
+    void existing_user_lazy_initialization_is_atomic_and_does_not_import_demo_balance() throws Exception {
+        // Direct auth persistence represents an account predating this rollout.
+        String id = "usr_legacy";
+        jdbc.update("insert into users(id,email,email_verified,status,created_at,updated_at) values(?,'legacy@example.com',true,'ACTIVE',clock_timestamp(),clock_timestamp())",id);
+        var owner = new Owner("user",id);
+        assertThat(billing.wallet(owner).totalUnits()).isZero();
+        try (var executor=Executors.newFixedThreadPool(8)) {
+            var futures = new java.util.ArrayList<Future<?>>();
+            for(int i=0;i<8;i++) futures.add(executor.submit(() -> store.initializeBilling(id)));
+            for(var future:futures) future.get(20,java.util.concurrent.TimeUnit.SECONDS);
+        }
+        assertThat(billing.wallet(owner).totalUnits()).isEqualTo(600);
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants",Long.class)).isEqualTo(1);
+        mockMvc.perform(get("/api/v1/billing/credits/wallet").with(
+                org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt().jwt(j -> j.subject(id))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalUnits").value(600));
+        assertThat(jdbc.queryForObject("select count(*) from users",Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void invalid_trial_registration_rolls_back_user_and_financial_changes() {
+        assertThatThrownBy(() -> emailAuthentication.register("invalid-trial@example.com",PASSWORD,null,"invalid"))
+                .isInstanceOf(AuthException.class);
+        assertThat(jdbc.queryForObject("select count(*) from users",Long.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants",Long.class)).isZero();
+    }
+
+    @Test
+    void parallel_conversion_to_different_users_has_exactly_one_winner() throws Exception {
+        Cookie cookie = newTrialCookie();
+        try(var executor=Executors.newFixedThreadPool(2)) {
+            var start=new CountDownLatch(1);
+            var futures=new java.util.ArrayList<Future<Boolean>>();
+            for(int i=0;i<2;i++) { int n=i; futures.add(executor.submit(() -> {
+                start.await();
+                try { emailAuthentication.register("conversion-"+n+"@example.com",PASSWORD,null,cookie.getValue());return true; }
+                catch(AuthException e) { assertThat(e.code()).isEqualTo(AuthErrorCode.TRIAL_SESSION_NOT_FOUND);return false; }
+            })); }
+            start.countDown();
+            assertThat(List.of(futures.get(0).get(20,java.util.concurrent.TimeUnit.SECONDS),
+                    futures.get(1).get(20,java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder(true,false);
+        }
+        assertThat(jdbc.queryForObject("select count(*) from users",Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants",Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void exhausted_status_uses_total_not_reserved_or_legacy_counter() throws Exception {
+        Cookie cookie=newTrialCookie();var owner=trialOwner(cookie);
+        var generation=billingCommand("all-reserved",Code.image_generation,null);
+        var edit=billingCommand("rest-reserved",Code.image_region_edit,null);
+        var first=transactions.execute(status -> billing.admit(owner,generation).operation());
+        var second=transactions.execute(status -> billing.admit(owner,edit).operation());
+        mockMvc.perform(get("/api/v1/trial-session").cookie(cookie)).andExpect(jsonPath("$.status").value("active"))
+                .andExpect(jsonPath("$.allowanceUnits").value(600)).andExpect(jsonPath("$.wallet.availableUnits").value(0));
+        transactions.execute(status -> billing.finish(first.snapshot().operationId(),0,Outcome.captured));
+        transactions.execute(status -> billing.finish(second.snapshot().operationId(),0,Outcome.captured));
+        mockMvc.perform(get("/api/v1/trial-session").cookie(cookie)).andExpect(jsonPath("$.status").value("exhausted"));
+        String debit=jdbc.queryForObject("select id from billing_ledger where operation_id=?",String.class,first.snapshot().operationId());
+        transactions.execute(status -> billing.compensate(first.walletId(),debit,"manual-correction",100));
+        mockMvc.perform(get("/api/v1/trial-session").cookie(cookie)).andExpect(jsonPath("$.status").value("active"));
+    }
+
+    @Test
+    void already_converted_legacy_trial_receives_only_one_grant_and_keeps_its_identity_alias() {
+        jdbc.update("insert into users(id,email,email_verified,status,created_at,updated_at) values('usr_previous','previous@example.com',true,'ACTIVE',clock_timestamp(),clock_timestamp())");
+        jdbc.update("insert into trial_sessions(id,token_hash,owner_user_id,converted_at,created_at,expires_at) values('trial_previous',?,'usr_previous',clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '1 day')",opaqueTokens.hash("old-cookie"));
+        var user=new Owner("user","usr_previous");
+        store.initializeBilling(user.id());store.initializeBilling(user.id());
+        assertThat(billing.wallet(user).totalUnits()).isEqualTo(600);
+        assertThat(billing.wallet(new Owner("trial","trial_previous")).id()).isEqualTo(billing.wallet(user).id());
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants",Long.class)).isEqualTo(1);
+        assertThatThrownBy(() -> trialService.get("old-cookie")).isInstanceOf(AuthException.class);
+    }
+
+    @Test
+    void workspace_conversion_failure_rolls_back_auth_financial_alias_and_reserve() throws Exception {
+        Cookie cookie=newTrialCookie();var owner=trialOwner(cookie);insertTrialWorkspace(owner.id());
+        var cmd=billingCommand("rollback",Code.image_generation,null);
+        var op=transactions.execute(status -> billing.admit(owner,cmd).operation());
+        jdbc.execute("create function test_reject_trial_transfer() returns trigger language plpgsql as $$ begin raise exception 'test transfer failure'; end $$");
+        jdbc.execute("create trigger test_reject_transfer before update on products for each row execute function test_reject_trial_transfer()");
+        try {
+            assertThatThrownBy(() -> emailAuthentication.register("rollback@example.com",PASSWORD,null,cookie.getValue()))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class);
+        } finally {
+            jdbc.execute("drop trigger test_reject_transfer on products");jdbc.execute("drop function test_reject_trial_transfer()");
+        }
+        assertThat(jdbc.queryForObject("select count(*) from users",Long.class)).isZero();
+        assertThat(jdbc.queryForObject("select owner_user_id from trial_sessions",String.class)).isNull();
+        assertThat(jdbc.queryForObject("select owner_trial_session_id from products",String.class)).isEqualTo(owner.id());
+        assertThat(billing.wallet(owner).id()).isEqualTo(op.walletId());
+        assertThat(billing.wallet(owner).reservedUnits()).isEqualTo(400);
+        assertThat(billing.wallet(owner).totalUnits()).isEqualTo(600);
+        assertThat(jdbc.queryForObject("select count(*) from billing_owners where kind='user'",Long.class)).isZero();
+    }
+
+    private com.tovarika.tech.cards.CardGenerationJob seedClaimedGeneration(String trialId) {
+        insertTrialWorkspace(trialId);
+        Instant now=Instant.now();
+        var job=new com.tovarika.tech.cards.CardGenerationJob("job_conversion","prj_bootstrap","card_conversion",
+                "queued",null,0,now,null,null);
+        transactions.execute(status -> {
+            generationStore.enqueue(job,1,null,null,"3:4","sample prompt",null,null,null,null,null,1,
+                    "product description",trialId,"generation-replay",now);
+            return null;
+        });
+        return transactions.execute(status -> generationStore.claim(now,now.plusSeconds(300)).orElseThrow());
+    }
+
+    private void completeSeedGeneration(com.tovarika.tech.cards.CardGenerationJob job) {
+        transactions.execute(status -> generationStore.complete(job,
+                new com.tovarika.tech.cards.CardGenerationStore.GeneratedAsset("asset_"+java.util.UUID.randomUUID().toString().replace("-",""),"test-key-"+java.util.UUID.randomUUID(),"image/png",1,100,100),Instant.now()));
+    }
+
+    @Test
+    void actual_generation_job_finishes_and_replays_after_conversion_in_same_financial_transaction() throws Exception {
+        Cookie cookie=newTrialCookie();var owner=trialOwner(cookie);var job=seedClaimedGeneration(owner.id());
+        var cmd=new Command("cards","generation-replay",1,Map.of(1,"a".repeat(64)),Code.image_generation,null,"card_generation",job.id());
+        var op=transactions.execute(status -> billing.admit(owner,cmd).operation());
+        long fence=transactions.execute(status -> billing.claim(op.snapshot().operationId(),0));
+        var user=emailAuthentication.register("actual-generation@example.com",PASSWORD,null,cookie.getValue());
+        String userId=user.user().id();
+        assertThat(generationService.start("prj_bootstrap","generation-replay",userId,null,null,"sample prompt","3:4",null,null).id()).isEqualTo(job.id());
+        Boolean applied=transactions.execute(status -> {
+            if(!billing.finish(op.snapshot().operationId(),fence,Outcome.captured)) throw new IllegalStateException("Stale financial fence");
+            if(!generationStore.complete(job,new com.tovarika.tech.cards.CardGenerationStore.GeneratedAsset(
+                    "asset_"+java.util.UUID.randomUUID().toString().replace("-",""),"test-key-"+java.util.UUID.randomUUID(),"image/png",1,100,100),Instant.now())) throw new IllegalStateException("Stale job fence");
+            return true;
+        });
+        assertThat(applied).isTrue();
+        assertThat(generationService.start("prj_bootstrap","generation-replay",userId,null,null,"sample prompt","3:4",null,null).status()).isEqualTo("completed");
+        assertThat(billing.wallet(new Owner("user",userId)).totalUnits()).isEqualTo(200);
+        assertThat(jdbc.queryForObject("select count(*) from project_jobs",Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from cards",Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where kind='ai_debit'",Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select owner_scope from project_jobs",String.class)).isEqualTo(owner.id());
+    }
+
+    @Test
+    void actual_image_edit_replays_after_conversion_and_retry_recovers_free_right_after_failure() throws Exception {
+        Cookie cookie=newTrialCookie();var trial=trialOwner(cookie);var generation=seedClaimedGeneration(trial.id());completeSeedGeneration(generation);
+        String base=jdbc.queryForObject("select current_version_id from cards",String.class);
+        var edit=new com.tovarika.tech.cards.editing.domain.ImageEdit("entire","edit prompt",null,null,null,null);
+        String jobId=editingService.start("prj_bootstrap","card_conversion","edit-replay",null,trial.id(),base,1L,edit,false);
+        var cmd=new Command("image-edit","edit-replay",1,Map.of(1,"a".repeat(64)),Code.image_entire_edit,"card_conversion","image-edit",jobId);
+        var op=transactions.execute(status -> billing.admit(trial,cmd).operation());
+        var claimed=transactions.execute(status -> editingStore.claim(Instant.now()).orElseThrow());
+        var user=emailAuthentication.register("actual-edit@example.com",PASSWORD,null,cookie.getValue());String userId=user.user().id();
+        assertThat(editingService.start("prj_bootstrap","card_conversion","edit-replay",userId,null,base,1L,edit,false)).isEqualTo(jobId);
+        transactions.execute(status -> {
+            billing.finish(op.snapshot().operationId(),0,Outcome.released);
+            if(!editingStore.fail(claimed,"AI_OPERATION_FAILED",Instant.now())) throw new IllegalStateException("Stale edit job");
+            return null;
+        });
+        assertThat(editingService.start("prj_bootstrap","card_conversion","edit-replay",userId,null,base,1L,edit,false)).isEqualTo(jobId);
+        String retry=editingService.start("prj_bootstrap","card_conversion","edit-new-retry",userId,null,base,1L,edit,false);
+        var newCommand=new Command("image-edit","edit-new-retry",1,Map.of(1,"b".repeat(64)),Code.image_entire_edit,"card_conversion","image-edit",retry);
+        assertThat(transactions.execute(status -> billing.admit(new Owner("user",userId),newCommand)).operation().snapshot().funding()).isEqualTo(Funding.free_entitlement);
+        assertThat(billing.wallet(new Owner("user",userId)).totalUnits()).isEqualTo(600);
+        assertThat(jdbc.queryForObject("select count(*) from project_jobs where type='card_image_edit'",Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where kind='ai_debit'",Long.class)).isZero();
+    }
+
+    @Test
+    void actual_analysis_job_stays_free_and_replays_after_conversion() throws Exception {
+        Cookie cookie=newTrialCookie();var trial=trialOwner(cookie);insertTrialWorkspace(trial.id());
+        var job=analysisService.start("prd_bootstrap","analysis-replay",null,trial.id());
+        var claimed=transactions.execute(status -> analysisStore.claim(Instant.now(),Instant.now().plusSeconds(300)).orElseThrow());
+        var user=emailAuthentication.register("actual-analysis@example.com",PASSWORD,null,cookie.getValue());String userId=user.user().id();
+        assertThat(analysisService.start("prd_bootstrap","analysis-replay",userId,null).id()).isEqualTo(job.id());
+        transactions.execute(status -> analysisStore.complete(claimed,
+                new com.tovarika.tech.analyses.domain.AnalysisResult("Product","Description","Idea"),"sample prompt",Instant.now()));
+        assertThat(analysisService.start("prd_bootstrap","analysis-replay",userId,null).status()).isEqualTo("completed");
+        assertThat(billing.wallet(new Owner("user",userId)).totalUnits()).isEqualTo(600);
+        assertThat(jdbc.queryForObject("select count(*) from analysis_jobs",Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where kind='ai_debit'",Long.class)).isZero();
+    }
+
+    @Test
+    void oauth_merge_keeps_actual_generation_keys_in_their_original_project_namespaces() throws Exception {
+        var existing=completeOAuth(null);String userId=existing.grant().user().user().id();
+        jdbc.update("insert into products(id,name,owner_user_id,created_at,updated_at) values('prd_existing','Existing',?,clock_timestamp(),clock_timestamp())",userId);
+        jdbc.update("insert into projects(id,name,product_id,default_aspect_ratio,created_at,updated_at) values('prj_existing','Existing','prd_existing','3:4',clock_timestamp(),clock_timestamp())");
+        Instant now=Instant.now();
+        var userJob=new com.tovarika.tech.cards.CardGenerationJob("job_existing","prj_existing","card_existing","queued",null,0,now,null,null);
+        transactions.execute(status -> {
+            generationStore.enqueue(userJob,1,null,null,"3:4","sample prompt",null,null,null,null,null,1,"description",userId,"generation-replay",now);
+            return null;
+        });
+        jdbc.update("update project_jobs set status='processing',attempt=1,lease_until=clock_timestamp()+interval '5 minutes' where id=?",userJob.id());
+        Cookie cookie=newTrialCookie();var trial=trialOwner(cookie);seedClaimedGeneration(trial.id());
+        completeOAuth(cookie.getValue());
+        assertThat(generationService.start("prj_existing","generation-replay",userId,null,null,"sample prompt","3:4",null,null).id()).isEqualTo(userJob.id());
+        assertThat(generationService.start("prj_bootstrap","generation-replay",userId,null,null,"sample prompt","3:4",null,null).id()).isEqualTo("job_conversion");
+        assertThat(jdbc.queryForObject("select count(*) from project_jobs",Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(distinct owner_scope) from project_jobs",Long.class)).isEqualTo(2);
+        assertThat(billing.wallet(new Owner("user",userId)).totalUnits()).isEqualTo(1200);
     }
 
     private Cookie newTrialCookie() throws Exception {

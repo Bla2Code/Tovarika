@@ -14,7 +14,8 @@ class CardSeriesStorageConfiguration {
     static class MemoryStorage implements ProductStorage {
         final Map<String,byte[]> data=new ConcurrentHashMap<>();
         boolean failReads;
-        public void put(String key,byte[] bytes,String mediaType) { data.put(key,bytes.clone()); }
+        boolean failWrites;
+        public void put(String key,byte[] bytes,String mediaType) { if(failWrites) throw new IllegalStateException("Test storage write unavailable");data.put(key,bytes.clone()); }
         public byte[] read(String key) {
             if(failReads) throw new IllegalStateException("Test storage unavailable");
             return data.getOrDefault(key,TemplatePlaceholder.png()).clone();

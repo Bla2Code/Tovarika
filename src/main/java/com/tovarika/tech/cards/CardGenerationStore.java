@@ -12,9 +12,11 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class CardGenerationStore {
     private final JdbcTemplate jdbc;
+    private final CardJobBilling billing;
 
-    public CardGenerationStore(JdbcTemplate jdbc) {
+    public CardGenerationStore(JdbcTemplate jdbc, CardJobBilling billing) {
         this.jdbc = jdbc;
+        this.billing = billing;
     }
 
     public void lockOwner(String userId, String trialId) {
@@ -73,16 +75,28 @@ public class CardGenerationStore {
                 """, Boolean.class, projectId));
     }
 
-    public Optional<CardGenerationJob> previous(String ownerScope, String key) {
-        if(Boolean.TRUE.equals(jdbc.queryForObject("""
-                select exists(select 1 from project_jobs where owner_scope=? and idempotency_key=? and type<>'card_generation')
-                    or exists(select 1 from card_image_history_receipts where owner_scope=? and idempotency_key=?)
-                """,Boolean.class,ownerScope,key,ownerScope,key)))
+    public Optional<CardGenerationJob> previous(String ownerScope, String key, String projectId, String cardId) {
+        // Keep original namespaces; conversion adds lookup aliases without rewriting accepted jobs.
+        var candidates = jdbc.query("""
+                select * from project_jobs where type='card_generation' and idempotency_key=?
+                and (owner_scope=? or owner_scope in (select id from trial_sessions where owner_user_id=?))
+                order by created_at,id
+                """, this::mapJob, key, ownerScope, ownerScope);
+        if (candidates.size() > 1) {
+            candidates = candidates.stream().filter(j -> j.projectId().equals(projectId) &&
+                    (cardId == null || j.cardId().equals(cardId))).toList();
+            if (candidates.size() != 1) throw new com.tovarika.tech.shared.application.ApiFailure(
+                    409,"IDEMPOTENCY_CONFLICT","Ambiguous command lineage");
+        }
+        if (!candidates.isEmpty()) return Optional.of(candidates.getFirst());
+        if (Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists(select 1 from project_jobs where idempotency_key=? and type<>'card_generation'
+                    and (owner_scope=? or owner_scope in (select id from trial_sessions where owner_user_id=?)))
+                or exists(select 1 from card_image_history_receipts where idempotency_key=?
+                    and (owner_scope=? or owner_scope in (select id from trial_sessions where owner_user_id=?)))
+                """, Boolean.class, key,ownerScope,ownerScope,key,ownerScope,ownerScope)))
             throw new com.tovarika.tech.shared.application.ApiFailure(409,"IDEMPOTENCY_CONFLICT","Key belongs to another command");
-        return jdbc.query("""
-                select * from project_jobs where owner_scope=? and idempotency_key=?
-                order by created_at limit 1
-                """, this::mapJob, ownerScope, key).stream().findFirst();
+        return Optional.empty();
     }
 
     public void requireOwnedProject(String projectId, String userId, String trialId) {
@@ -127,6 +141,10 @@ public class CardGenerationStore {
                 values(?,?,'card_generation','queued',?,?,?,?,?,0)
                 """, job.id(), job.projectId(), Timestamp.from(now), Timestamp.from(now), job.cardId(), ownerScope, key);
         jdbc.update("update cards set last_image_job_id=? where id=?",job.id(),job.cardId());
+        jdbc.update("""
+                update project_jobs q set base_version_id=c.current_version_id,expected_image_revision=c.image_revision
+                from cards c where q.id=? and c.id=q.card_id
+                """,job.id());
     }
 
     public Optional<CardGenerationJob> ownedJob(String id, String userId, String trialId) {
@@ -139,15 +157,8 @@ public class CardGenerationStore {
     }
 
     public Optional<CardGenerationJob> claim(Instant now, Instant leaseUntil) {
-        return jdbc.query("""
-                update project_jobs set status='processing',attempt=attempt+1,lease_until=?,
-                    started_at=coalesce(started_at,?),updated_at=?
-                where id=(select id from project_jobs
-                    where type='card_generation' and (status='queued' or (status='processing' and lease_until<=?))
-                    order by created_at for update skip locked limit 1)
-                returning *
-                """, this::mapJob, Timestamp.from(leaseUntil), Timestamp.from(now), Timestamp.from(now),
-                Timestamp.from(now)).stream().findFirst();
+        return billing.claim(true,now,leaseUntil)
+                .flatMap(id -> jdbc.query("select * from project_jobs where id=?",this::mapJob,id).stream().findFirst());
     }
 
     public GenerationSource source(CardGenerationJob job) {
@@ -166,8 +177,13 @@ public class CardGenerationStore {
                         result.getString("reference_media_type")), job.cardId(), job.projectId());
     }
 
+    public void command(String jobId,String digest) {
+        jdbc.update("update project_jobs set command_digest=? where id=?",digest,jobId);
+    }
     public boolean complete(CardGenerationJob job, GeneratedAsset asset, Instant now) {
         if (!lockCurrent(job)) return false;
+        if(!currentCard(job)) { failLocked(job,now,"CARD_VERSION_CONFLICT"); return false; }
+        if(asset.sizeBytes()<=0 || asset.width()<=0 || asset.height()<=0) throw new IllegalArgumentException("Invalid generated asset");
         jdbc.update("""
                 insert into assets(id,purpose,media_type,size_bytes,width,height,url,storage_key,created_at)
                 values(?,'card_image',?,?,?,?, '',?,?)
@@ -188,18 +204,32 @@ public class CardGenerationStore {
                 """, Timestamp.from(now), Timestamp.from(now), job.id());
         jdbc.update("update projects set preview_asset_id=coalesce(preview_asset_id,?),updated_at=? where id=?",
                 asset.id(), Timestamp.from(now), job.projectId());
+        billing.finish(job.id(),true,true);
         return true;
     }
 
     public boolean fail(CardGenerationJob job, Instant now) {
         if (!lockCurrent(job)) return false;
-        jdbc.update("update cards set status='error',error_code='GENERATION_FAILED',updated_at=? where id=?",
-                Timestamp.from(now), job.cardId());
-        jdbc.update("""
-                update project_jobs set status='failed',failure_code='GENERATION_FAILED',finished_at=?,
-                    lease_until=null,updated_at=? where id=?
-                """, Timestamp.from(now), Timestamp.from(now), job.id());
+        failLocked(job,now,"GENERATION_FAILED");
         return true;
+    }
+    private boolean currentCard(CardGenerationJob job) {
+        return !jdbc.queryForList("""
+                select c.id from cards c join project_jobs q on q.id=?
+                where c.id=q.card_id and c.last_image_job_id=q.id
+                  and (q.expected_image_revision is null or c.image_revision=q.expected_image_revision)
+                  and c.current_version_id is not distinct from q.base_version_id for update of c
+                """,String.class,job.id()).isEmpty();
+    }
+    private void failLocked(CardGenerationJob job,Instant now,String code) {
+        jdbc.update("""
+                update cards set status=case when current_version_id is null then 'error' else 'ready' end,
+                    error_code=?,updated_at=? where id=? and last_image_job_id=?
+                """,code,Timestamp.from(now),job.cardId(),job.id());
+        jdbc.update("""
+                update project_jobs set status='failed',failure_code=?,finished_at=?,lease_until=null,updated_at=? where id=?
+                """,code,Timestamp.from(now),Timestamp.from(now),job.id());
+        billing.finish(job.id(),false,false);
     }
 
     public Optional<CardView> ownedCard(String projectId, String cardId, String userId, String trialId) {
@@ -231,6 +261,7 @@ public class CardGenerationStore {
     }
 
     private boolean lockCurrent(CardGenerationJob job) {
+        billing.lock(job.id());
         return !jdbc.queryForList("""
                 select id from project_jobs where id=? and status='processing' and attempt=? for update
                 """, String.class, job.id(), job.attempt()).isEmpty();

@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 018-billing-trial
+      author: codex
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/018-billing-trial.sql
+            splitStatements: false

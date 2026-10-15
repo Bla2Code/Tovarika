@@ -22,6 +22,7 @@
 | Загрузка Product, валидация, хранение и подписанные ссылки assets | [PRODUCTS.md](PRODUCTS.md) |
 | Проекты, настройки, блокировки и удаление | [PROJECTS.md](PROJECTS.md) |
 | Trial workspace, выбор identity и конвертация владельца | [TRIAL.md](TRIAL.md) |
+| Товарики: цены, кошелёк, AI admission, бесплатное право, история и recovery | [BILLING.md](BILLING.md) |
 | Межмодульные зависимости и граница с UI | [DEPS.md](DEPS.md) |
 | Authentication, authorization, cookies, CORS/CSRF, OAuth и защищённые endpoint | [SECURITY.md](SECURITY.md) |
 | OpenAI-клиент, модели, конфигурация, secrets и диагностика deployment | [OPENAI.md](OPENAI.md) |

@@ -1,5 +1,7 @@
 package com.tovarika.tech.images.infrastructure;
 
+import com.tovarika.tech.billing.usage.AiCallContext;
+
 import com.tovarika.tech.analyses.domain.AnalysisResult;
 import com.tovarika.tech.images.application.GeneratedImage;
 import com.tovarika.tech.images.application.GenerationRequest;
@@ -55,7 +57,7 @@ public class OpenAiResponsesClient implements OpenAiClient {
     private final String mainModel;
 
     public OpenAiResponsesClient(OpenAiProperties properties, ProductAnalysisPrompt prompt,
-            ObjectMapper mapper, RestClient.Builder builder) {
+            ObjectMapper mapper, @org.springframework.beans.factory.annotation.Qualifier("openAiRestClientBuilder") RestClient.Builder builder) {
         this.mainModel = properties.visionModel();
         this.prompt = prompt;
         this.mapper = mapper;
@@ -68,6 +70,10 @@ public class OpenAiResponsesClient implements OpenAiClient {
 
     @Override
     public AnalysisResult analyze(String model, String operationId, byte[] original, String mediaType) {
+        return analyze(model,operationId,original,mediaType,null);
+    }
+    @Override public AnalysisResult analyze(String model,String operationId,byte[] original,String mediaType,
+            AiCallContext context) {
         validateInput(model, operationId, original, mediaType);
         String dataUrl = "data:" + mediaType + ";base64," + Base64.getEncoder().encodeToString(original);
         Map<String, Object> request = Map.of(
@@ -82,22 +88,32 @@ public class OpenAiResponsesClient implements OpenAiClient {
                 "text", Map.of("format", outputFormat()),
                 "max_output_tokens", 1200,
                 "metadata", Map.of("tovarika_operation_id", operationId));
+        var call=context==null?null:context.start(model,null,null,null,false);
         try {
             String responseBody = client.post()
                     .uri("/responses")
-                    .header("X-Client-Request-Id", operationId + "-" + UUID.randomUUID())
+                    .header("X-Client-Request-Id", call==null?operationId + "-" + UUID.randomUUID():call.id)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
                     .body(String.class);
-            return parse(responseBody == null ? null : mapper.readTree(responseBody));
+            JsonNode response=responseBody==null?null:mapper.readTree(responseBody);
+            if(call!=null) call.response(response);
+            var result=parse(response);
+            if(call!=null) call.success();
+            return result;
         } catch (RestClientException | JacksonException | IllegalArgumentException failure) {
+            if(call!=null) call.failure(failure);
             throw new IllegalStateException("OpenAI analysis request failed");
-        }
+        } finally { if(call!=null) context.end(call); }
     }
 
     @Override
     public GeneratedImage generate(String mainModel, String imageModel, GenerationRequest request) {
+        return generate(mainModel,imageModel,request,null);
+    }
+    @Override public GeneratedImage generate(String mainModel,String imageModel,GenerationRequest request,
+            AiCallContext context) {
         validateGeneration(mainModel, imageModel, request);
         List<Map<String, Object>> content = new java.util.ArrayList<>();
         content.add(Map.of("type", "input_text", "text", request.prompt()));
@@ -127,15 +143,17 @@ public class OpenAiResponsesClient implements OpenAiClient {
                         "action", "edit",
                         "size", generationSize,
                         "quality", "auto")));
+        var call=context==null?null:context.start(mainModel,imageModel,generationSize,"auto",false);
         try {
             String responseBody = client.post()
                     .uri("/responses")
-                    .header("X-Client-Request-Id", requestId)
+                    .header("X-Client-Request-Id",call==null?requestId:call.id)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
                     .body(String.class);
             JsonNode response = responseBody == null ? null : mapper.readTree(responseBody);
+            if(call!=null) call.response(response);
             if (response == null || !"completed".equals(response.path("status").asText())) {
                 throw new IllegalArgumentException("OpenAI image response is incomplete");
             }
@@ -146,14 +164,17 @@ public class OpenAiResponsesClient implements OpenAiClient {
                             && item.path("result").isString()) {
                         byte[] image = Base64.getDecoder().decode(item.path("result").asText());
                         if (image.length == 0) throw new IllegalArgumentException("Empty image result");
-                        return normalize(image, request.width(), request.height());
+                        var result=normalize(image,request.width(),request.height());
+                        if(call!=null) call.success();
+                        return result;
                     }
                 }
             }
             throw new IllegalArgumentException("OpenAI response has no generated image");
         } catch (RestClientException | JacksonException | IllegalArgumentException failure) {
+            if(call!=null) call.failure(failure);
             throw new IllegalStateException("OpenAI image generation request failed");
-        }
+        } finally { if(call!=null) context.end(call); }
     }
 
     private String generationSize(String imageModel, int width, int height) {
@@ -206,6 +227,10 @@ public class OpenAiResponsesClient implements OpenAiClient {
 
     @Override
     public GeneratedImage edit(String mainModel,String imageModel,com.tovarika.tech.images.application.ImageEditInput input) {
+        return edit(mainModel,imageModel,input,null);
+    }
+    @Override public GeneratedImage edit(String mainModel,String imageModel,com.tovarika.tech.images.application.ImageEditInput input,
+            AiCallContext context) {
         if(mainModel==null || mainModel.isBlank() || imageModel==null || imageModel.isBlank()
                 || input.prompt()==null || input.prompt().isBlank() || input.prompt().length()>8000
                 || input.original().length==0 || input.original().length>10485760 || input.mask().length>10485760
@@ -230,10 +255,12 @@ public class OpenAiResponsesClient implements OpenAiClient {
                                 "data:"+input.mediaType()+";base64,"+Base64.getEncoder().encodeToString(input.original()))))),
                 "tool_choice",Map.of("type","image_generation"),
                 "tools",List.of(tool));
+        var call=context==null?null:context.start(mainModel,imageModel,(String)tool.get("size"),null,false);
         try {
-            String encoded=client.post().uri("/responses").header("X-Client-Request-Id","edit-"+UUID.randomUUID())
+            String encoded=client.post().uri("/responses").header("X-Client-Request-Id",call==null?"edit-"+UUID.randomUUID():call.id)
                     .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class);
             JsonNode response=encoded==null?null:mapper.readTree(encoded);
+            if(call!=null) call.response(response);
             if(response==null || !"completed".equals(response.path("status").asText()))
                 throw new ImageEditFailure(ImageEditFailure.Reason.INCOMPLETE_RESPONSE, null);
             for(JsonNode item:response.path("output")) {
@@ -247,19 +274,27 @@ public class OpenAiResponsesClient implements OpenAiClient {
                         raster=resized;
                     }
                     byte[] png=com.tovarika.tech.images.application.ImageRaster.png(raster);
+                    if(call!=null) call.success();
                     return new GeneratedImage(png,"image/png",raster.getWidth(),raster.getHeight(),false);
                 }
             }
             throw new ImageEditFailure(ImageEditFailure.Reason.NO_IMAGE_RESULT, null);
         } catch(RestClientResponseException failure) {
+            if(call!=null) call.failure(failure);
             throw new ImageEditFailure(ImageEditFailure.Reason.HTTP_ERROR, failure.getStatusCode().value());
         } catch(RestClientException failure) {
+            if(call!=null) call.failure(failure);
             throw new ImageEditFailure(ImageEditFailure.Reason.TRANSPORT_ERROR, null);
         } catch(JacksonException failure) {
+            if(call!=null) call.failure(failure);
             throw new ImageEditFailure(ImageEditFailure.Reason.INVALID_RESPONSE, null);
         } catch(IllegalArgumentException failure) {
+            if(call!=null) call.failure(failure);
             throw new ImageEditFailure(ImageEditFailure.Reason.INVALID_IMAGE_RESULT, null);
-        }
+        } catch(ImageEditFailure failure) {
+            if(call!=null) call.failure(failure);
+            throw failure;
+        } finally { if(call!=null) context.end(call); }
     }
 
     private AnalysisResult parse(JsonNode response) throws JacksonException {

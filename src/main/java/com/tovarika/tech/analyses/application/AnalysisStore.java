@@ -7,7 +7,7 @@ import java.util.*;
 public interface AnalysisStore {
     void lockOwner(String userId, String trialId);
     Product lockProduct(String productId, String userId, String trialId);
-    Optional<AnalysisJob> previous(String key, String userId, String trialId);
+    Optional<AnalysisJob> previous(String key, String userId, String trialId, String productId);
     void enqueue(AnalysisJob job, String scope, String key);
     Optional<AnalysisJob> ownedJob(String jobId, String userId, String trialId);
     Optional<AnalysisJob> claim(Instant now, Instant leaseUntil);

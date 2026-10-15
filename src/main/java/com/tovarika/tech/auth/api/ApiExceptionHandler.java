@@ -22,6 +22,13 @@ public class ApiExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
+    @ExceptionHandler(com.tovarika.tech.billing.application.BillingFailure.class)
+    ResponseEntity<ApiErrorDto> handleBilling(com.tovarika.tech.billing.application.BillingFailure failure, HttpServletRequest request) {
+        var body = error(ErrorCodeDto.fromValue(failure.code()), failure.getMessage(), request);
+        if (!failure.details().isEmpty()) body.details(failure.details());
+        return ResponseEntity.status(failure.status()).body(body);
+    }
+
     @ExceptionHandler(com.tovarika.tech.shared.application.ApiFailure.class)
     ResponseEntity<ApiErrorDto> handleApi(com.tovarika.tech.shared.application.ApiFailure failure, HttpServletRequest request) {
         return ResponseEntity.status(failure.status()).body(error(ErrorCodeDto.fromValue(failure.code()), failure.getMessage(), request));

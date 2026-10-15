@@ -8,6 +8,11 @@ public interface ImageEditingStore {
     record Current(String versionId, long revision, String status, String previousVersionId, String redoVersionId) {}
     record Source(String storageKey, String mediaType, String aspectRatio) {}
     record Output(String id, String key, int size, int width, int height, boolean hasAlpha) {}
+    void lockOwner(String userId,String trialId);
+    void requireOwnedProject(String projectId,String userId,String trialId);
+    void lockProject(String projectId,String userId,String trialId);
+    record Dimensions(int width,int height) {}
+    Dimensions dimensions(String versionId);
     void lockOwnerProject(String projectId, String userId, String trialId);
     Current current(String projectId, String cardId);
     void requireIdle(String projectId);
@@ -20,5 +25,6 @@ public interface ImageEditingStore {
     Optional<ImageEditJob> claim(Instant now);
     Source source(ImageEditJob job);
     boolean complete(ImageEditJob job, Output output, Instant now);
+    boolean complete(ImageEditJob job, Output output, Instant now, boolean aiCalled);
     boolean fail(ImageEditJob job, String code, Instant now);
 }

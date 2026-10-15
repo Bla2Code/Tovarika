@@ -113,8 +113,13 @@ public class YandexOAuthService {
         if (!user.isActive()) {
             throw AuthException.forbidden(AuthErrorCode.FORBIDDEN, "User is not active");
         }
-        if (rawTrialToken != null && !rawTrialToken.isBlank()) {
-            store.convertTrial(opaqueTokens.hash(rawTrialToken), user.id(), now);
+        if (rawTrialToken != null) {
+            if (rawTrialToken.isBlank() || !store.convertTrial(opaqueTokens.hash(rawTrialToken), user.id(), now)) {
+                throw AuthException.unauthorized(AuthErrorCode.TRIAL_SESSION_NOT_FOUND,
+                        "Trial session is missing, invalid, expired or converted");
+            }
+        } else {
+            store.initializeBilling(user.id());
         }
         return new OAuthCompletion(attempt.returnPath(), sessions.create(user, metadata));
     }

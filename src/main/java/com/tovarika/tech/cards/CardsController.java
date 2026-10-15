@@ -13,22 +13,24 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class CardsController implements CardsApi {
     private final CardGenerationService cards;
+    private final CardJobBilling billing;
     private final WorkspaceIdentityResolver identities;
     private final AssetLinks links;
     private final com.tovarika.tech.cards.editing.application.CardImageEditingService edits;
 
     public CardsController(CardGenerationService cards, WorkspaceIdentityResolver identities, AssetLinks links,
-            com.tovarika.tech.cards.editing.application.CardImageEditingService edits) {
+            com.tovarika.tech.cards.editing.application.CardImageEditingService edits, CardJobBilling billing) {
         this.cards = cards;
         this.identities = identities;
         this.links = links;
         this.edits = edits;
+        this.billing = billing;
     }
 
     @Override
     public ResponseEntity<AsyncOperationDto> generateCard(
             String idempotencyKey, String projectId, GenerateCardRequestDto request) {
-        var owner = identities.resolve();
+        var owner = identities.requireRegistered();
         var job = cards.start(projectId, idempotencyKey, owner.userId(), owner.trialSessionId(),
                 request.getTemplateId(), request.getPrompt(), request.getAspectRatio().getValue(),
                 request.getVariantId(), request.getIdea());
@@ -52,7 +54,7 @@ public class CardsController implements CardsApi {
 
     @Override
     public ResponseEntity<AsyncOperationDto> retryFailedCard(String key, String projectId, String cardId) {
-        var owner = identities.resolve();
+        var owner = identities.requireRegistered();
         return ResponseEntity.accepted().body(operation(cards.retry(projectId, cardId, key,
                 owner.userId(), owner.trialSessionId())));
     }
@@ -82,7 +84,7 @@ public class CardsController implements CardsApi {
     @Override
     public ResponseEntity<AsyncOperationDto> editCardRegion(
             String idempotencyKey, String projectId, String cardId, EditCardRegionRequestDto request) {
-        var owner=identities.resolve();
+        var owner=identities.requireRegistered();
         if(!(request.getRegion() instanceof RectangleCardRegionDto rectangle))
             throw new ApiFailure(422,"IMAGE_EDIT_UNAVAILABLE","Uploaded masks are not available");
         var operation=new com.tovarika.tech.cards.editing.domain.ImageEdit("region",request.getPrompt(),rect(rectangle),null,null,null);
@@ -98,7 +100,7 @@ public class CardsController implements CardsApi {
 
     @Override
     public ResponseEntity<AsyncOperationDto> editCardImage(String key,String projectId,String cardId,ImageEditRequestDto request) {
-        var owner=identities.resolve();
+        var owner=identities.requireRegistered();
         var operation=edit(request.getOperation());
         String jobId=edits.start(projectId,cardId,key,owner.userId(),owner.trialSessionId(),
                 request.getBaseVersionId(),request.getExpectedImageRevision(),operation,false);
@@ -107,7 +109,7 @@ public class CardsController implements CardsApi {
 
     @Override
     public ResponseEntity<CardDto> undoCardImage(String key,String projectId,String cardId,UndoCardImageRequestDto request) {
-        var owner=identities.resolve();
+        var owner=identities.requireRegistered();
         edits.undo(projectId,cardId,key,owner.userId(),owner.trialSessionId(),request.getBaseVersionId(),request.getExpectedImageRevision());
         return ResponseEntity.ok().header("Cache-Control","no-store")
                 .body(dto(cards.getCard(projectId,cardId,owner.userId(),owner.trialSessionId())));
@@ -115,14 +117,14 @@ public class CardsController implements CardsApi {
 
     @Override
     public ResponseEntity<CardDto> redoCardImage(String key,String projectId,String cardId,RedoCardImageRequestDto request) {
-        var owner=identities.resolve();
+        var owner=identities.requireRegistered();
         edits.redo(projectId,cardId,key,owner.userId(),owner.trialSessionId(),request.getBaseVersionId(),request.getExpectedImageRevision());
         return ResponseEntity.ok().header("Cache-Control","no-store")
                 .body(dto(cards.getCard(projectId,cardId,owner.userId(),owner.trialSessionId())));
     }
 
     private AsyncOperationDto accepted(String jobId,String cardId) {
-        return new AsyncOperationDto(jobId,"queued",new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD,cardId),1000);
+        return new AsyncOperationDto(jobId,"queued",new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD,cardId),1000).billing(billing.snapshot(jobId));
     }
 
     private com.tovarika.tech.cards.editing.domain.ImageEdit edit(ImageEditOperationDto operation) {
@@ -155,7 +157,7 @@ public class CardsController implements CardsApi {
 
     private AsyncOperationDto operation(CardGenerationJob job) {
         return new AsyncOperationDto(job.id(), "queued",
-                new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD, job.cardId()), 1000);
+                new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD, job.cardId()), 1000).billing(billing.snapshot(job.id()));
     }
 
     private CardDto dto(CardView card) {

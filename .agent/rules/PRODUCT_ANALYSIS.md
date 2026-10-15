@@ -3,6 +3,7 @@
 Читай при изменении analyses, analysis jobs, description/idea или prompt анализа.
 AI-конфигурация/secrets — [OPENAI.md](OPENAI.md), использование description карточкой —
 [CARD_PROMPTS.md](CARD_PROMPTS.md).
+Бесплатная история, usage и recovery — [BILLING.md](BILLING.md).
 
 ## 1. Реализация и запуск
 
@@ -20,7 +21,8 @@ AI-конфигурация/secrets — [OPENAI.md](OPENAI.md), использо
 
 ## 2. Worker и результат AI
 
-- PostgreSQL queue: FOR UPDATE SKIP LOCKED, lease 300 секунд, fencing по attempt.
+- PostgreSQL queue: FOR UPDATE SKIP LOCKED, lease 10 минут, heartbeat каждые 30 секунд
+  (renewal одного исполнения не более 20 минут), fencing по attempt.
   Просроченная lease позволяет повторный claim; при attempt > 3 операция завершается ошибкой.
   AI вызывается вне claim/complete-транзакций.
 - Provider operation ID равен job ID и сохраняется при recovery. Это metadata,
@@ -30,6 +32,11 @@ AI-конфигурация/secrets — [OPENAI.md](OPENAI.md), использо
   это отличается от PATCH существующего результата.
   Ошибка — analysis_failed, terminal job и только стабильный ANALYSIS_FAILED.
   DB trigger запрещает возобновлять terminal job; повторный анализ создаёт новую job.
+- Анализ бесплатен: financial operation/reserve и billing snapshot у analysis job сейчас
+  не создаются. Успех атомарно записывает BillingActivity receipt для нулевой free_operation
+  в истории; AiUsageService отдельно учитывает provider calls, включая failed/stale/stub.
+  Accounting gate/pause card AI не блокируют анализ. В отличие от generation/edit,
+  AnalysisWorker пока не проверяет возраст job 24 часа — только максимум attempts.
 - Server-owned vision prompt: `src/main/resources/prompts/product-analysis-v1.txt`.
   Результат на русском: title до 200 символов или null, description 1–4000, idea 1–2000.
   Описываются видимые факты основного товара без выдуманных свойств, цен/скидок/рейтингов;

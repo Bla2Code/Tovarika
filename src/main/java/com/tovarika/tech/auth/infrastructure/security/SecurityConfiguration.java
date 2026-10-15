@@ -39,6 +39,7 @@ public class SecurityConfiguration {
     }
 
     @Bean
+    @org.springframework.context.annotation.Primary
     RestClient.Builder authenticationRestClientBuilder() {
         return RestClient.builder();
     }
@@ -73,6 +74,9 @@ public class SecurityConfiguration {
         // introducing an undocumented synchronizer-token requirement.
         http.csrf(csrf -> csrf.disable());
         http.authorizeHttpRequests(authorize -> authorize
+                .requestMatchers(HttpMethod.GET, "/api/v1/billing/credits/wallet",
+                        "/api/v1/billing/credits/summary", "/api/v1/billing/credits/history",
+                        "/api/v1/billing/credits/prices").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/products/*/analysis").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/products/*/analysis").permitAll()
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/products/*/analysis").permitAll()

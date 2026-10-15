@@ -20,15 +20,17 @@ public class CardGenerationService {
     private final OpenAiProperties openAi;
     private final Clock clock;
     private final ObjectMapper mapper;
+    private final CardJobBilling billing;
 
     public CardGenerationService(CardGenerationStore store, TemplateService templates,
-            CardPromptCompiler prompts, OpenAiProperties openAi, Clock clock, ObjectMapper mapper) {
+            CardPromptCompiler prompts, OpenAiProperties openAi, Clock clock, ObjectMapper mapper, CardJobBilling billing) {
         this.store = store;
         this.templates = templates;
         this.prompts = prompts;
         this.openAi = openAi;
         this.clock = clock;
         this.mapper = mapper;
+        this.billing = billing;
     }
 
     @Transactional
@@ -48,10 +50,13 @@ public class CardGenerationService {
             throw new ApiFailure(422, "VALIDATION_ERROR", "Unsupported aspect ratio");
         }
         store.lockOwner(userId, trialId);
-        var project = store.lockProject(projectId, userId, trialId);
+        store.requireOwnedProject(projectId,userId,trialId);
+        String digest=billing.digest("create",projectId,templateId,userPrompt,aspectRatio,variantId,idea);
         String ownerScope = userId == null ? trialId : userId;
         var previous = replay(projectId, null, ownerScope, idempotencyKey);
-        if (previous != null) return previous;
+        if (previous != null) { billing.verifyReplay(previous.id(),digest); return previous; }
+        billing.prepare(userId,trialId,null);
+        var project = store.lockProject(projectId, userId, trialId);
         requireIdle(projectId);
         if (project.cardCount() >= 10) {
             throw new ApiFailure(409, "CARD_LIMIT_EXCEEDED", "The project already has 10 cards");
@@ -81,10 +86,14 @@ public class CardGenerationService {
         }
         var now = clock.instant();
         var job = new CardGenerationJob(id("job_"), projectId, id("card_"), "queued", null, 0, now, null, null);
+        String operationId=billing.admit(userId,trialId,idempotencyKey,digest,
+                com.tovarika.tech.billing.domain.Billing.Code.image_generation,null,job.id());
         store.enqueue(job, position, hasTemplate ? templateId : null, reference, aspectRatio, compiledPrompt,
                 recipe, variant == null ? null : variant.path("id").asText(), variant == null ? null : variant.toString(),
                 finalIdea, series == null ? null : series.json(), project.analysisRevision(), project.description(),
                 ownerScope, idempotencyKey, now);
+        store.command(job.id(),digest);
+        billing.bind(job.id(),operationId);
         return job;
     }
 
@@ -113,10 +122,13 @@ public class CardGenerationService {
     public CardGenerationJob retry(String projectId, String cardId, String key, String userId, String trialId) {
         validateKey(key);
         store.lockOwner(userId, trialId);
-        store.lockProject(projectId, userId, trialId);
+        getCard(projectId,cardId,userId,trialId);
+        String digest=billing.digest("retry",projectId,cardId);
         String scope = userId == null ? trialId : userId;
         var previous = replay(projectId, cardId, scope, key);
-        if (previous != null) return previous;
+        if (previous != null) { billing.verifyReplay(previous.id(),digest); return previous; }
+        billing.prepare(userId,trialId,cardId);
+        store.lockProject(projectId, userId, trialId);
         requireIdle(projectId);
         CardView card = getCard(projectId, cardId, userId, trialId);
         if (!"error".equals(card.status())) {
@@ -124,7 +136,11 @@ public class CardGenerationService {
         }
         var now = clock.instant();
         var job = new CardGenerationJob(id("job_"), projectId, cardId, "queued", null, 0, now, null, null);
+        String operationId=billing.admit(userId,trialId,key,digest,
+                com.tovarika.tech.billing.domain.Billing.Code.image_entire_edit,cardId,job.id());
         store.retry(job, scope, key, now);
+        store.command(job.id(),digest);
+        billing.bind(job.id(),operationId);
         return job;
     }
 
@@ -165,7 +181,7 @@ public class CardGenerationService {
     }
 
     private CardGenerationJob replay(String projectId, String cardId, String scope, String key) {
-        var previous = store.previous(scope, key);
+        var previous = store.previous(scope, key, projectId, cardId);
         if (previous.isEmpty()) return null;
         if (!previous.get().projectId().equals(projectId) || (cardId != null && !previous.get().cardId().equals(cardId))) {
             throw new ApiFailure(409, "IDEMPOTENCY_CONFLICT", "Key belongs to another operation");

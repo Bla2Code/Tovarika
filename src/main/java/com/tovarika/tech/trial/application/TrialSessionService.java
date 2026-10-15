@@ -1,5 +1,7 @@
 package com.tovarika.tech.trial.application;
 
+import com.tovarika.tech.billing.domain.Billing.Owner;
+import com.tovarika.tech.billing.application.BillingService;
 import com.tovarika.tech.auth.application.AuthErrorCode;
 import com.tovarika.tech.auth.application.AuthException;
 import com.tovarika.tech.auth.application.port.AuthenticationRateLimiter;
@@ -20,14 +22,17 @@ public class TrialSessionService {
     private final AuthenticationRateLimiter rateLimiter;
     private final TrialProperties properties;
     private final Clock clock;
+    private final BillingService billing;
 
     public TrialSessionService(TrialSessionStore store, OpaqueTokenService tokens,
-            AuthenticationRateLimiter rateLimiter, TrialProperties properties, Clock clock) {
+            AuthenticationRateLimiter rateLimiter, TrialProperties properties, Clock clock,
+            BillingService billing) {
         this.store = store;
         this.tokens = tokens;
         this.rateLimiter = rateLimiter;
         this.properties = properties;
         this.clock = clock;
+        this.billing = billing;
     }
 
     @Transactional(noRollbackFor = AuthException.class)
@@ -42,15 +47,23 @@ public class TrialSessionService {
                 3, 0, now, now.plus(properties.ttl()));
         String token = tokens.generate();
         store.create(session, tokens.hash(token));
-        return new Bootstrap(session, token);
+        return new Bootstrap(funded(session), token);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TrialSession get(String rawCookie) {
         if (rawCookie == null || rawCookie.isBlank()) {
             throw unavailable();
         }
-        return store.findAvailable(tokens.hash(rawCookie), clock.instant()).orElseThrow(this::unavailable);
+        return funded(store.findAvailable(tokens.hash(rawCookie), clock.instant()).orElseThrow(this::unavailable));
+    }
+
+    private TrialSession funded(TrialSession session) {
+        var owner = new Owner("trial", session.id());
+        billing.grantTrial(owner, "trial:" + session.id());
+        var wallet = billing.wallet(owner);
+        return new TrialSession(session.id(), session.generationLimit(), session.generationsUsed(),
+                session.createdAt(), session.expiresAt(), billing.trialAllowance(wallet.id()), wallet);
     }
 
     private AuthException unavailable() {
