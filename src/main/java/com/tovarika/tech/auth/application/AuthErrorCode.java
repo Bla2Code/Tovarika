@@ -3,6 +3,7 @@ package com.tovarika.tech.auth.application;
 public enum AuthErrorCode {
     VALIDATION_ERROR,
     AUTHENTICATION_REQUIRED,
+    REGISTRATION_REQUIRED,
     ACCESS_TOKEN_INVALID,
     INVALID_CREDENTIALS,
     EMAIL_ALREADY_REGISTERED,

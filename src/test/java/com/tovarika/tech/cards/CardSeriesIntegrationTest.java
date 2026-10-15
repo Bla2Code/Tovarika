@@ -174,7 +174,7 @@ class CardSeriesIntegrationTest {
         assertThat(count()).isEqualTo(1);
     }
 
-    @Test void trialDraftAndRetryUseOwnershipAndStrictMutationOrigin() throws Exception {
+    @Test void trialCanReadDraftButMustRegisterToGenerateOrRetry() throws Exception {
         var cookie=mvc.perform(post("/api/v1/trial-session").header("Origin","https://ui.test"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getCookie("__Host-tovarika_trial");
         String trial=jdbc.queryForObject("select id from trial_sessions",String.class);
@@ -187,17 +187,11 @@ class CardSeriesIntegrationTest {
                 .andExpect(status().isForbidden());
         mvc.perform(post(path).cookie(cookie).header("Origin","https://unknown.test").header("Idempotency-Key","trial-card-key").contentType("application/json").content(body))
                 .andExpect(status().isForbidden());
-        var response=mvc.perform(post(path).cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","trial-card-key").contentType("application/json").content(body))
-                .andExpect(status().isAccepted()).andReturn().getResponse();
-        String cardId=mapper.readTree(response.getContentAsString()).path("target").path("id").asText();
-        transactions.executeWithoutResult(tx->{var job=store.claim(Instant.now(),Instant.now().plusSeconds(300)).orElseThrow();store.fail(job,Instant.now());});
-        mvc.perform(post(path+"/"+cardId+"/retry").cookie(cookie).header("Idempotency-Key","trial-retry-key"))
-                .andExpect(status().isForbidden());
-        mvc.perform(post(path+"/"+cardId+"/retry").cookie(cookie).header("Origin","https://unknown.test").header("Idempotency-Key","trial-retry-key"))
-                .andExpect(status().isForbidden());
-        mvc.perform(post(path+"/"+cardId+"/retry").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","trial-retry-key"))
-                .andExpect(status().isAccepted());
-        assertThat(count()).isEqualTo(1);
+        mvc.perform(post(path).cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","trial-card-key").contentType("application/json").content(body))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("REGISTRATION_REQUIRED"));
+        mvc.perform(post(path+"/card_missing/retry").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key","trial-retry-key"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("REGISTRATION_REQUIRED"));
+        assertThat(count()).isZero();
         jdbc.update("update trial_sessions set expires_at=now()-interval '1 second'");
         mvc.perform(get(path+"/next-draft").cookie(cookie)).andExpect(status().isUnauthorized());
     }

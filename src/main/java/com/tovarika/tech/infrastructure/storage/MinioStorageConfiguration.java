@@ -23,7 +23,7 @@ public class MinioStorageConfiguration {
                         .readTimeout(java.time.Duration.ofSeconds(60))
                         .writeTimeout(java.time.Duration.ofSeconds(60))
                         .callTimeout(java.time.Duration.ofSeconds(90))
-                        .retryOnConnectionFailure(false).build())
+                        .retryOnConnectionFailure(true).build())
 				.build();
 	}
 

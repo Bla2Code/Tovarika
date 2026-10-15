@@ -202,7 +202,8 @@ class AnalysisJobsIntegrationTest {
                         .content("{\"productId\":\""+product+"\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse();
         String project=json.readTree(projectResponse.getContentAsString()).get("id").asString();
-        var started=mvc.perform(post("/api/v1/projects/"+project+"/cards").cookie(cookie)
+        String registeredToken=registerTrial();
+        var started=mvc.perform(post("/api/v1/projects/"+project+"/cards").header("Authorization","Bearer "+registeredToken)
                         .header("Origin","https://ui.test").header("Idempotency-Key","first-card-key")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content("{\"templateId\":\"tpl_test_card\",\"aspectRatio\":\"4:5\"}"))
@@ -212,9 +213,9 @@ class AnalysisJobsIntegrationTest {
         String job=operation.get("jobId").asString();
         String card=operation.get("target").get("id").asString();
         assertThat(cardWorker.runOnce()).isTrue();
-        mvc.perform(get("/api/v1/jobs/"+job).cookie(cookie))
+        mvc.perform(get("/api/v1/jobs/"+job).header("Authorization","Bearer "+registeredToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("completed"));
-        var cardResponse=mvc.perform(get("/api/v1/projects/"+project+"/cards/"+card).cookie(cookie))
+        var cardResponse=mvc.perform(get("/api/v1/projects/"+project+"/cards/"+card).header("Authorization","Bearer "+registeredToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ready"))
                 .andExpect(jsonPath("$.aspectRatio").value("4:5"))
                 .andExpect(jsonPath("$.image.width").value(1024))
@@ -232,11 +233,17 @@ class AnalysisJobsIntegrationTest {
                         .content("{\"productId\":\""+product+"\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse();
         String project=json.readTree(projectResponse.getContentAsString()).get("id").asString();
-        mvc.perform(post("/api/v1/projects/"+project+"/cards").cookie(cookie)
+        String registeredToken=registerTrial();
+        mvc.perform(post("/api/v1/projects/"+project+"/cards").header("Authorization","Bearer "+registeredToken)
                         .header("Origin","https://ui.test").header("Idempotency-Key","missing-source-key")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content("{\"aspectRatio\":\"3:4\"}"))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+    private String registerTrial() {
+        String password="test registration passphrase";
+        var user=auth.register(java.util.UUID.randomUUID()+"@example.test",password,null,cookie.getValue()).user();
+        return auth.login(user.email(),password,new com.tovarika.tech.auth.application.RequestMetadata("Test Browser","192.0.2.xxx")).accessToken();
     }
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder command(String product,String key) {
         return post("/api/v1/products/"+product+"/analysis").cookie(cookie).header("Origin","https://ui.test").header("Idempotency-Key",key);

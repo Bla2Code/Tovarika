@@ -45,3 +45,5 @@ databaseChangeLog:
       file: db/changelog/changes/021-billing-recovery.yaml
   - include:
       file: db/changelog/changes/022-billing-free-history.yaml
+  - include:
+      file: db/changelog/changes/023-registration-onboarding.yaml

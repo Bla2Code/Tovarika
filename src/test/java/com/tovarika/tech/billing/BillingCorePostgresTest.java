@@ -44,7 +44,7 @@ class BillingCorePostgresTest {
         }
         jdbc.execute("create table billing_test_results(operation_id varchar(40) primary key, result text not null)");
     }
-    @AfterEach void resetActiveVersion() {
+    @BeforeEach void resetActiveVersion() {
         jdbc.update("update billing_configuration set active_version='billing-2026-10-14-v1'");
     }
     static <T> T tx(Supplier<T> action) { return transactions.execute(status -> action.get()); }

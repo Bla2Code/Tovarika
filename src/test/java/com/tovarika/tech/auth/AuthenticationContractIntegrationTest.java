@@ -141,6 +141,8 @@ class AuthenticationContractIntegrationTest {
                 TRUNCATE TABLE billing_accounts, authentication_rate_limits, oauth_attempts, password_reset_tokens,
                     refresh_tokens, auth_sessions, auth_identities, trial_sessions, users CASCADE
                 """);
+        // Exercise historical grants/conversion with the original published price fixture.
+        jdbc.update("update billing_configuration set active_version='billing-2026-10-14-v1'");
         messages.clear();
         yandexClient.reset();
         mockMvc = MockMvcBuilders.webAppContextSetup(applicationContext).apply(springSecurity()).build();
@@ -914,6 +916,7 @@ class AuthenticationContractIntegrationTest {
         var op = transactions.execute(status -> billing.admit(owner,command).operation());
         var completion = completeOAuth(cookie.getValue());
         var user = new Owner("user",completion.grant().user().user().id());
+        assertThat(jdbc.queryForObject("select completed_at is null from registration_onboarding where user_id=?",Boolean.class,user.id())).isTrue();
         assertThat(billing.wallet(user).id()).isEqualTo(op.walletId());
         transactions.execute(status -> billing.finish(op.snapshot().operationId(),0,Outcome.released));
         assertThat(billing.wallet(user).availableUnits()).isEqualTo(600);

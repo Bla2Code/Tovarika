@@ -32,5 +32,14 @@ public class WorkspaceIdentityResolver {
         return new Identity(null, trials.get(rawCookie).id());
     }
 
+    public Identity requireRegistered() {
+        var identity = resolve();
+        if (identity.userId() == null) {
+            throw AuthException.forbidden(AuthErrorCode.REGISTRATION_REQUIRED,
+                    "Register to create or edit cards after product analysis");
+        }
+        return identity;
+    }
+
     public record Identity(String userId, String trialSessionId) {}
 }

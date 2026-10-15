@@ -68,7 +68,7 @@ Reserved/captured/released, provider usage и себестоимость пуб�
 | `product_analysis` | Бесплатный анализ | 0 |
 | `cpu_only` | Fit/pad, crop, outpaint без новых полей | 0 |
 
-Trial allowance начально 600 units = 6 Т. Upload, ручные изменения, draft/preview,
+Trial allowance начально 1600 units = 16 Т (новая опубликованная версия; прежние grants неизменны). Upload, ручные изменения, draft/preview,
 Undo/Redo и export бесплатны; они не создают финансовых операций/строк истории.
 Классификация resize выполняется сервером по исходным размерам и плану до reserve.
 Неподдерживаемые `regenerateCard` и legacy uploaded masks не являются платными путями.

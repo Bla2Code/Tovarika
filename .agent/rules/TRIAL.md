@@ -36,7 +36,7 @@ AI admission и история — [BILLING.md](BILLING.md). Trial — обыч�
 ## 3. Allowance, кошелёк и совместимость
 
 - `TrialSessionService.funded` в транзакции bootstrap/GET вызывает `grantTrial`, читает
-  wallet и сохранённый allowance. Начально 600 units = 6 Т из active PostgreSQL configuration.
+  wallet и сохранённый allowance. Начально 1600 units = 16 Т из active PostgreSQL configuration.
   Reference `trial:trial:<id>` уникален; повтор/race, включая allowance=0, не начисляет второй раз.
 - `allowanceUnits` — snapshot первоначального grant, не остаток; `wallet.totalUnits` и
   `wallet.availableUnits` — текущие деньги. Оба поля возвращаются в Trial API.
@@ -77,3 +77,20 @@ AI admission и история — [BILLING.md](BILLING.md). Trial — обыч�
 
 Проверки: AuthenticationContractIntegrationTest по [SECURITY.md](SECURITY.md),
 финансовые гонки/merge/pending finalization — suites из [BILLING.md](BILLING.md).
+
+## Регистрация после анализа и опрос
+
+- Гость загружает фото и получает анализ. «Продолжить» в UI открывает полную регистрацию,
+  сохраняя returnPath к исходному товару и шагу выбора стиля.
+- CardsController требует User для генерации, retry и image edit/undo/redo;
+  действующая trial cookie получает 403 REGISTRATION_REQUIRED.
+- Миграция 023 публикует новую версию allowance; прежние grants не изменяются.
+- Новый email/OAuth аккаунт получает pending-запись registration_onboarding в той же транзакции.
+  GET /me/onboarding возвращает completed; PUT принимает role/frequency/difficulty,
+  берёт email из аккаунта и атомарно сохраняет ответы только один раз.
+- Старые аккаунты без записи не опрашиваются. Завершённый опрос не появляется
+  при повторном входе, очистке localStorage или на другом устройстве.
+
+- Успешный loginWithEmail с действующей trial cookie также переносит товар и кошелёк.
+  Неверный пароль не конвертирует trial; истёкшая/converted cookie не блокирует вход.
+  Успешный вход очищает trial cookie. Объединение сохраняет исходные grants без нового начисления.

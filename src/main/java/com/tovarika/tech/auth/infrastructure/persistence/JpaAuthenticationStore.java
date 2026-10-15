@@ -82,6 +82,8 @@ public class JpaAuthenticationStore implements AuthenticationStore {
         UserEntity userEntity = toEntity(user);
         users.save(userEntity);
         identities.save(toEntity(identity, userEntity));
+        users.flush();
+        jdbc.update("insert into registration_onboarding(user_id,email) values(?,?)", user.id(), user.email());
     }
 
     @Override

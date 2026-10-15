@@ -45,7 +45,7 @@ class BillingCreditsIntegrationTest {
     @BeforeEach void setUp() { mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build(); }
     @Test void pricesArePublicAndFinancialRoutesRequireIdentity() throws Exception {
         mvc.perform(get("/api/v1/billing/credits/prices")).andExpect(status().isOk())
-            .andExpect(jsonPath("$.trialAllowanceUnits").value(600)).andExpect(jsonPath("$.prices.length()").value(8));
+            .andExpect(jsonPath("$.trialAllowanceUnits").value(1600)).andExpect(jsonPath("$.prices.length()").value(8));
         for(String endpoint:java.util.List.of("wallet","summary","history")) {
             mvc.perform(get("/api/v1/billing/credits/"+endpoint)).andExpect(status().isUnauthorized());
         }
@@ -58,7 +58,7 @@ class BillingCreditsIntegrationTest {
         var user=new Owner("user",Billing.id("usr_"));
         var userWallet=billing.wallet(user);
         mvc.perform(get("/api/v1/billing/credits/wallet").cookie(cookie)).andExpect(status().isOk())
-            .andExpect(jsonPath("$.totalUnits").value(600)).andExpect(jsonPath("$.availableUnits").value(600))
+            .andExpect(jsonPath("$.totalUnits").value(1600)).andExpect(jsonPath("$.availableUnits").value(1600))
             .andExpect(jsonPath("$.reservedUnits").doesNotExist());
         mvc.perform(get("/api/v1/billing/credits/wallet").cookie(cookie).with(jwt().jwt(j -> j.subject(user.id()))))
             .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(userWallet.id())).andExpect(jsonPath("$.totalUnits").value(0));
@@ -74,10 +74,10 @@ class BillingCreditsIntegrationTest {
         String debit=jdbc.queryForObject("select id from billing_ledger where operation_id=?",String.class,op.snapshot().operationId());
         transactions.execute(status -> billing.compensate(op.walletId(),debit,Billing.id("refund_"),100));
         mvc.perform(get("/api/v1/billing/credits/summary").with(jwt().jwt(j -> j.subject(owner.id()))))
-            .andExpect(status().isOk()).andExpect(jsonPath("$.usedUnits").value(300)).andExpect(jsonPath("$.wallet.totalUnits").value(300));
+            .andExpect(status().isOk()).andExpect(jsonPath("$.usedUnits").value(300)).andExpect(jsonPath("$.wallet.totalUnits").value(1300));
         var response=mvc.perform(get("/api/v1/billing/credits/history").with(jwt().jwt(j -> j.subject(owner.id()))))
             .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(2))
-            .andExpect(jsonPath("$.items[0].kind").value("ai_debit")).andExpect(jsonPath("$.items[0].balanceAfterUnits").value(200))
+            .andExpect(jsonPath("$.items[0].kind").value("ai_debit")).andExpect(jsonPath("$.items[0].balanceAfterUnits").value(1200))
             .andExpect(jsonPath("$.items[1].kind").value("trial_grant")).andReturn().getResponse().getContentAsString();
         assertThat(response).doesNotContain("walletId","operationId","jobId","sequence","product","subject","compensation","refund","reservedUnits", "\"nextCursor\":null", "\"operationCode\":null");
         for (String query:java.util.List.of("limit=0","limit=101","sort=bad","fromDate=2026-02-30","fromDate=2026-10-15&toDate=2026-10-14","cursor=invalid")) {
@@ -107,7 +107,7 @@ class BillingCreditsIntegrationTest {
             .andReturn().getResponse().getContentAsString();
         assertThat(response).doesNotContain("\"balanceAfterUnits\":null");
         mvc.perform(get("/api/v1/billing/credits/summary").with(jwt().jwt(j->j.subject(owner.id()))))
-            .andExpect(status().isOk()).andExpect(jsonPath("$.wallet.totalUnits").value(600)).andExpect(jsonPath("$.usedUnits").value(0));
+            .andExpect(status().isOk()).andExpect(jsonPath("$.wallet.totalUnits").value(1600)).andExpect(jsonPath("$.usedUnits").value(0));
     }
 
 }
