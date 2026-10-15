@@ -30,6 +30,7 @@ services:
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       AUTH_MAIL_FROM: ${AUTH_MAIL_FROM:-no-reply@tovarika.com}
       AUTH_UI_BASE_URI: ${AUTH_UI_BASE_URI:-https://tovarika.com}
+      TOVARIKA_BILLING_AI_ADMISSION_ENABLED: ${TOVARIKA_BILLING_AI_ADMISSION_ENABLED:-true}
       OPENAI_MODE: ${OPENAI_MODE:-live}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
