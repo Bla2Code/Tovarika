@@ -2,7 +2,8 @@
 
 Читай при изменении запуска карточки, очереди, worker, состояний и выдачи результата.
 Сборка текста запроса — [CARD_PROMPTS.md](CARD_PROMPTS.md),
-AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
+AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md),
+цена/reserve/free repeat, lock order и recovery — [BILLING.md](BILLING.md).
 
 ## 1. Поток и точки реализации
 
@@ -31,9 +32,11 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
   Отсутствие идеи использует defaultIdea; явно пустая/пробельная идея отклоняется.
   templateId и технический prompt одновременно запрещены. На первой позиции сохранена
   совместимость с templateId без variantId; шаблон без сценариев допускает старую первую карточку.
-- Транзакция блокирует владельца, затем Project/Product. Повтор ключа в owner_scope
-  возвращает исходную job для того же проекта; другой проект — `409 IDEMPOTENCY_CONFLICT`.
-  Сравнения payload при replay сейчас нет. Replay проверяется до лимита карточек и анализа.
+- Транзакция блокирует владельца и проверяет ownership; replay в owner_scope и converted
+  trial aliases возвращает исходную job. SHA-256 command_digest защищает payload/target;
+  конфликт — `409 IDEMPOTENCY_CONFLICT`. У legacy receipts digest может отсутствовать.
+  Replay идёт до funds/price/pause, busy/лимита/анализа. Только новая команда берёт
+  finance guards через CardJobBilling.prepare до Project/Product locks.
 - После replay активная project job даёт `409 CARD_BUSY`; при card_count >= 10 — `409 CARD_LIMIT_EXCEEDED`.
   Нужен Product analysis_ready с непустым description и revision: иначе
   `409 RESULT_NOT_READY`, при analysis_failed — `409 ANALYSIS_FAILED`.
@@ -43,6 +46,9 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
   snapshots prompt/recipe/reference asset ID/analysis description/revision, вариант и окончательная idea; card_count увеличивается на 1.
   При шаблоне обновляются selected_template_id и snapshot серии; сохраняется выбранный ratio. Настройки проекта не подставляются
   автоматически вместо параметров запроса.
+- При accounting gate новая generation фиксирует image_generation/price snapshot и полный
+  reserve через CardJobBilling в той же транзакции. 402 WALLET_INSUFFICIENT_FUNDS не оставляет
+  Card/job/reserve; отдельный pause даёт 503 BILLING_AI_PAUSED. Подробности — [BILLING.md](BILLING.md).
 
 ## 3. Worker и результат
 
@@ -55,16 +61,20 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 
 - Scheduler включён по умолчанию; `CARD_GENERATION_WORKER_ENABLED` управляет им,
   `tovarika.cards.poll-delay-ms` по умолчанию 1000.
-- Claim: FOR UPDATE SKIP LOCKED, lease 300 секунд, увеличение attempt.
-  Просроченный processing можно забрать снова; при attempt > 3 внешняя генерация не выполняется.
+- Claim через CardJobBilling: чтение кандидата без domain lock, finance → domain locks,
+  повторная проверка, увеличение attempt/financial fence. Lease 10 минут, heartbeat 30 секунд,
+  максимум renewal одного исполнения 20 минут. При attempt > 3 или возрасте job >=24 часов
+  новый provider call не выполняется; резерв освобождается с fenced terminal failure.
 - После claim-транзакции worker читает оригинал Product и reference из MinIO.
   Исходное фото всегда первое; reference второе. Без reference в stub используется placeholder.
 - Worker вызывает ImageGenerationService с provider chatgpt, сохраняет результат
   в `cards/{assetId}`. Complete-транзакция проверяет processing и тот же attempt,
   создаёт Asset card_image, связывает Card и завершает job; preview проекта
-  заполняется только если ещё отсутствует.
-- Устаревший attempt не меняет результат. Его объект удаляется; при исключении выполняется
-  best-effort удаление, затем сохраняется только публичный код ошибки.
+  заполняется только если ещё отсутствует. Capture/debit либо consume права и durable
+  history receipt сохраняются атомарно с результатом; failure освобождает reserve/право.
+- Устаревший attempt не меняет результат/finance. При неизвестном commit outcome сначала
+  разрешается fenced failure, затем object удаляется только после проверки отсутствия ссылки
+  в assets; при недоступной БД cleanup откладывается. Сохраняется только публичный код ошибки.
 - Job progress: queued 0, processing 10, completed 100; это не реальный процент AI-работы.
   Job/Card GET используют Cache-Control: no-store; URL результата создаётся через AssetLinks.
 - Метрики: `tovarika.card.generation.latency`/`tovarika.card.generation.operations`,
@@ -77,7 +87,10 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 - Failed Card остаётся на своей позиции. `POST /cards/{cardId}/retry` создаёт новую job
   для error Card с прежними snapshots, без увеличения card_count, включая лимит 10.
   Replay не перезапускает failed job; ready Card даёт `CARD_RETRY_NOT_ALLOWED`.
-- Списание trial generations и billing/quota пока отсутствует.
+  Сейчас retry использует image_entire_edit и общее с entire бесплатное право; отличие от
+  контрактного описания retryFailedCard зафиксировано в [BILLING.md](BILLING.md), раздел 10.
+- Trial counters deprecated; admission определяется доступными Товариками/бесплатным правом,
+  а не числом прежних генераций. Legacy jobs не получают retroactive debit.
 - Fencing защищает запись результата в БД, но не обеспечивает exactly-once вызов AI:
   после истечения lease возможен повторный запрос провайдеру.
 - Для generated objects пока нет durable reservation/cleanup как у Product upload:

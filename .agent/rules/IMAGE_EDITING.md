@@ -2,6 +2,7 @@
 
 Контракт: `../tovarika-api-contract/openapi/schemas/image-edits.yaml`,
 `paths/cards.yaml`; описание сценария — `../tovarika-api-contract/docs/image-editing.md`.
+Цены, бесплатный entire, финансовые guards и история — [BILLING.md](BILLING.md).
 
 - `CardsController.editCardImage` принимает discriminator `entire`, `region`,
   `remove_background`, `resize`, `erase`. `ImageEditBodyAdvice` защищает exact JSON shape,
@@ -26,8 +27,9 @@
   canUndo/canRedo=false при active project operation. Endpoint списка истории пока нет.
 - `CardImageEditingWorker` использует существующие Jobs, scheduler и ProductStorage.
   Claim/complete/fail — короткие транзакции; AI/storage обработка вне транзакции.
-  Lease 300 секунд, attempt fencing, максимум 3 попытки recovery. Commit проверяет
-  base/revision/lastImageJobId, устаревший результат не публикуется. Не добавляй Project
+  Finance guards берутся до domain locks через CardJobBilling. Lease 10 минут, heartbeat
+  каждые 30 секунд (не более 20 минут renewal), максимум 3 попытки recovery и возраст <24 часов.
+  Commit проверяет base/revision/lastImageJobId, устаревший результат не публикуется. Не добавляй Project
   lock из update project_jobs: это нарушит существующий порядок блокировок.
 - `CardImageProcessor` строит alpha mask по normalized rectangle floor/ceil и копирует
   только выделенные RGBA pixels из AI-result. Маска провайдера — guidance, не гарантия.
@@ -49,8 +51,13 @@
 - Bearer/trial: WorkspaceIdentityResolver и project ownership обязательны. Новые POST
   внесены в SecurityConfiguration и строгую card Origin policy; permitAll на уровне
   filter chain разрешает trial identity, а не анонимное изменение ресурса.
-- Accounting/quota, exports, arbitrary regeneration, PATCH Card, durable orphan cleanup
-  и cross-identity replay после trial conversion не добавлены этим flow.
+- Entire резервирует одно lifetime free право Card, затем оплачивается по цене generation;
+  region/erase/remove_background имеют отдельные цены. Resize классифицируется по ResizePlan
+  до admission; CPU бесплатен. Result и capture/consume либо release атомарны;
+  success receipt добавляет AI/resize в историю, failed/stale его не создают.
+- Replay после trial conversion учитывает converted aliases; Undo/Redo не списывают credits
+  и не восстанавливают free право. Схема — [BILLING.md](BILLING.md), [TRIAL.md](TRIAL.md).
+- Произвольная регенерация, PATCH Card и durable orphan cleanup пока не реализованы.
 
 Проверки: CardImageProcessorTest (pixels/mask/alpha/resize),
 CardImageEditingIntegrationTest (PostgreSQL, workflow/Undo/idempotency/concurrency/
