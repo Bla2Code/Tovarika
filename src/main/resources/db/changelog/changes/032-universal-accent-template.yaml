@@ -1,0 +1,40 @@
+databaseChangeLog:
+  - changeSet:
+      id: 032-universal-accent-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload assets/templates/tpl_universal_accent/23a5bff8-4f51-49f7-ae71-98f16f1f2b9a.webp to MinIO before deployment.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_universal_accent_ref', 'template_reference', 'image/webp',
+                  8870, 384, 512,
+                  'templates/tpl_universal_accent/23a5bff8-4f51-49f7-ae71-98f16f1f2b9a.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Цветовой акцент',
+                  reference_asset_id = 'asset_tpl_universal_accent_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Violet gradient studio backdrop with layered circular stone plinths and a broad open upper area",
+                    "composition": "Source product fully visible on the front round plinth; layered stone blocks behind; reserve upper negative space for an optional short title",
+                    "lighting": "Soft directional lilac studio light, gentle edge highlights and natural contact shadows on the plinth",
+                    "style": "Polished minimal product photography with one violet color accent; restrained sans-serif title and small factual caption only when supported",
+                    "palette": ["#D5AEF2", "#A779D9", "#704696", "#B19BCB", "#47305D"],
+                    "avoid": [
+                      "verbatim reference text or reference branding",
+                      "invented product features, prices or color variants",
+                      "unrelated products or unsupported product views",
+                      "recoloring the source product with violet studio light",
+                      "changes to source product identity, labels or branding",
+                      "text overlapping the product or extending beyond safe margins"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_universal_accent' AND category_id = 'cat_universal';

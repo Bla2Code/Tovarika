@@ -1,0 +1,43 @@
+databaseChangeLog:
+  - changeSet:
+      id: 026-fashion-contrast-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_contrast_ref', 'template_reference', 'image/webp',
+                  22384, 384, 512,
+                  'templates/tpl_fashion_contrast/69e9ffa5-dc91-41ec-b346-ec33a0bbf708.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO templates (
+                  id, name, category_id, sort_order, available,
+                  reference_asset_id, recipe_json, created_at, updated_at
+              ) VALUES (
+                  'tpl_fashion_contrast', 'Контрастный силуэт', 'cat_fashion', 40, true,
+                  'asset_tpl_fashion_contrast_ref',
+                  '{
+                    "schemaVersion": 1,
+                    "scene": "Split off-white and warm terracotta studio backdrop with translucent circles on the colored side",
+                    "composition": "Source product large across the vertical divide; bold headline upper left, stacked feature callouts right and optional fact lower left",
+                    "lighting": "Soft even studio light preserving the source product color, shape and visible texture",
+                    "style": "Fashion editorial infographic with oversized black and white sans-serif type, thin rules, small round icons and warm brown accents",
+                    "palette": ["#FAFAF8", "#CC8F72", "#9B664F", "#171717", "#FFFFFF"],
+                    "avoid": [
+                      "verbatim reference text, product, footwear pair or branding",
+                      "people or body parts absent from the source photo",
+                      "invented material claims, size ranges, quality promises or prices",
+                      "unverified alternate views or extra products",
+                      "changes to source product identity, colors, labels or branding",
+                      "text or icons covering the product or crossing safe margins"
+                    ]
+                  }'::jsonb,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+              );

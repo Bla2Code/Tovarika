@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 060-kids-clean-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_kids_hero_ref', 'template_reference', 'image/webp',
+                  10142, 384, 512,
+                  'templates/tpl_kids_hero/dac94340-4df4-454f-b4ea-8715c7384f2f.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Kids clean',
+                  category_id = 'cat_kids',
+                  sort_order = 10,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_kids_hero_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Warm beige seamless studio background and soft neutral surface with generous negative space",
+                    "composition": "One source product fully visible near center; sparse confirmed title in the open upper area and optional short factual label",
+                    "lighting": "Soft diffused warm studio light, gentle grounded shadows and faithful source product colors",
+                    "style": "Minimal clean kids product card with soft shapes, quiet typography, ample spacing and restrained factual overlay text",
+                    "palette": ["#E9C9A1", "#F1D6B2", "#FFF0D8", "#A67F57"],
+                    "avoid": [
+                      "verbatim reference branding or product labels",
+                      "reference bottles, towel or plush bunny substituted for the source product",
+                      "invented age range, ingredients, intended use or safety claims",
+                      "extra products or unsupported bundle contents",
+                      "changes to source product shape, colors, labels or branding"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_kids_hero';

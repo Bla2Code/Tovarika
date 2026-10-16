@@ -2,11 +2,11 @@
 
 В MVP шаблон состоит из одного компактного reference-изображения и одного JSON recipe — структурированного описания оформления. Один и тот же файл используется для превью в каталоге и как визуальный образец при генерации. Отдельных версий и дополнительных размеров изображений нет. Разработчик загружает файл в MinIO вручную, а все метаданные и связь с шаблоном добавляет скрипт миграции Liquibase.
 
-Для будущей серии подготовлен [набор из 10 сценариев tpl_fashion_hero](../assets/templates/tpl_fashion_hero/card-variants.json).
+Для серии подготовлены наборы из 10 сценариев: [tpl_fashion_hero](../assets/templates/tpl_fashion_hero/card-variants.json) и [tpl_fashion_accent](../assets/templates/tpl_fashion_accent/card-variants.json).
 Его структура и задачи подключения описаны в [плане серии карточек](card-series-tasks.md).
-Сценарии пока не участвуют в runtime и не заменяют JSON recipe schemaVersion=1 ниже.
+Сценарии загружаются отдельными миграциями и не заменяют JSON recipe schemaVersion=1 ниже.
 
-Готовый пример для категории «Одежда и обувь»: [изображение и инструкция подключения](../assets/templates/tpl_fashion_hero/README.md). Миграция `011-fashion-template-example` заполняет один существующий шаблон `tpl_fashion_hero`; изображение нужно вручную загрузить в MinIO до её применения.
+Готовые примеры для категории «Одежда и обувь»: [tpl_fashion_hero](../assets/templates/tpl_fashion_hero/README.md) и [tpl_fashion_accent](../assets/templates/tpl_fashion_accent/README.md). Миграции `011-fashion-template-example` и `024-fashion-accent-template` заполняют соответствующие существующие шаблоны; изображения нужно вручную загрузить в MinIO до применения миграций.
 
 ## 1. Подготовить изображение
 

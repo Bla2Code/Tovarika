@@ -1,0 +1,43 @@
+databaseChangeLog:
+  - changeSet:
+      id: 028-fashion-sculpture-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_sculpture_ref', 'template_reference', 'image/webp',
+                  15522, 384, 512,
+                  'templates/tpl_fashion_sculpture/4a00b821-2689-4390-ab6b-c06e15210c6a.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO templates (
+                  id, name, category_id, sort_order, available,
+                  reference_asset_id, recipe_json, created_at, updated_at
+              ) VALUES (
+                  'tpl_fashion_sculpture', 'Скульптурный подиум', 'cat_fashion', 50, true,
+                  'asset_tpl_fashion_sculpture_ref',
+                  '{
+                    "schemaVersion": 1,
+                    "scene": "Neutral gray fashion studio with white textured sculptural forms and a stone podium",
+                    "composition": "Source product large and fully visible above the podium; oversized headline upper left, stacked factual lines left and optional round fact badge lower right",
+                    "lighting": "Soft directional studio light with natural shadows on the sculpture and source product",
+                    "style": "Editorial fashion infographic with large white sans-serif type, translucent gray label, short captions and a round information medallion",
+                    "palette": ["#B7B8B6", "#D6D7D5", "#F4F4F2", "#8F908E", "#FFFFFF"],
+                    "avoid": [
+                      "verbatim reference text, shoe, color or collection wording",
+                      "hands or models absent from the source photo",
+                      "invented material, comfort, heel height or size range",
+                      "unverified extra views or product parts",
+                      "changes to source product identity, colors, labels or branding",
+                      "text or badges covering the product or crossing safe margins"
+                    ]
+                  }'::jsonb,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+              );

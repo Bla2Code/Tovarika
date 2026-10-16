@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 058-kitchen-scene-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_food_lifestyle_ref', 'template_reference', 'image/webp',
+                  48764, 384, 512,
+                  'templates/tpl_food_lifestyle/5d8a9ce9-d8a3-49ed-9777-9cdd3c1d5bb0.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Kitchen scene',
+                  category_id = 'cat_food',
+                  sort_order = 30,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_food_lifestyle_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Dark rustic wooden table with sparse suitable culinary props; warm distant glow only when relevant to the source food product",
+                    "composition": "Source product fully visible in the foreground; oversized cream headline above, optional yellow badge and compact dark fact panel beside it",
+                    "lighting": "Warm directional light on the product and textured wood, soft shadows and a deep subdued background",
+                    "style": "Atmospheric food card with bold cream heading, small yellow badge and translucent dark fact panel; use only verified product facts",
+                    "palette": ["#171611", "#65422D", "#F8D8A5", "#FFD900", "#C53524"],
+                    "avoid": [
+                      "verbatim grill basket text, sausage claims or demonstration branding",
+                      "invented ingredients, taste, nutrition, weight, price or preparation method",
+                      "grill fire and sausages when unrelated to the source product",
+                      "props presented as included items or additional products",
+                      "changes to source product shape, color, package or visible branding"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_food_lifestyle';

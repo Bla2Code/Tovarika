@@ -1,0 +1,40 @@
+databaseChangeLog:
+  - changeSet:
+      id: 044-tech-neon-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload assets/templates/tpl_electronics_accent/1bf4e5e4-53fc-48aa-9276-90e8023b0b17.webp to MinIO before deployment.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_electronics_accent_ref', 'template_reference', 'image/webp',
+                  19018, 384, 512,
+                  'templates/tpl_electronics_accent/1bf4e5e4-53fc-48aa-9276-90e8023b0b17.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Tech neon',
+                  reference_asset_id = 'asset_tpl_electronics_accent_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Dark tech studio with a violet-to-red-orange gradient and a pale floor beneath the source product",
+                    "composition": "Source product large and fully visible at center; oversized translucent type behind it, confirmed title and compact feature row below",
+                    "lighting": "Strong red-orange rim light, restrained cool reflections and a natural grounded shadow; preserve source product color",
+                    "style": "Energetic gaming editorial with bold display type, white factual captions and small line icons; rewrite overlays from user facts",
+                    "palette": ["#180B28", "#5B0D36", "#D32A14", "#FF6A20", "#EFF2FF"],
+                    "avoid": [
+                      "verbatim reference brand, model, labels or slogans",
+                      "unverified latency, battery life, Bluetooth version or protection rating",
+                      "invented specifications, prices or color variants",
+                      "extra accessories or unsupported views of the product",
+                      "changes to source product shape, colors, branding or visible labels",
+                      "text overlapping the product or leaving safe margins"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_electronics_accent' AND category_id = 'cat_electronics';

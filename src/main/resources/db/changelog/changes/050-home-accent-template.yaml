@@ -1,0 +1,40 @@
+databaseChangeLog:
+  - changeSet:
+      id: 050-home-accent-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload assets/templates/tpl_home_accent/ebefbb65-f9ad-4cfa-8a73-f111973745c4.webp to MinIO before deployment.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_home_accent_ref', 'template_reference', 'image/webp',
+                  16330, 384, 512,
+                  'templates/tpl_home_accent/ebefbb65-f9ad-4cfa-8a73-f111973745c4.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Tech neon',
+                  reference_asset_id = 'asset_tpl_home_accent_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Warm terracotta interior studio with a recessed arch, a slender plant and a simple floor",
+                    "composition": "Source product fully visible in center or right; large pale headline at upper left and compact factual captions below",
+                    "lighting": "Soft directional warm light and realistic contact shadow without altering the source product color",
+                    "style": "Editorial home-goods card with spacious serif headline, restrained fine dividers and factual captions rewritten for the user product",
+                    "palette": ["#732B1D", "#A74127", "#C85A38", "#E3A178", "#F6E8D5"],
+                    "avoid": [
+                      "verbatim reference brand, slogan, labels or pictograms",
+                      "unsupported fabric, filling, frame or maintenance claims",
+                      "invented dimensions, prices or product variants",
+                      "extra products or unsupported product views",
+                      "changes to source product geometry, color or branding",
+                      "text overlapping the product or extending beyond safe margins"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_home_accent' AND category_id = 'cat_home';

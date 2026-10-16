@@ -1,0 +1,38 @@
+databaseChangeLog:
+  - changeSet:
+      id: 048-home-clean-template
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to this exact storage key before applying the migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_home_hero_ref', 'template_reference', 'image/webp',
+                  30942, 384, 512,
+                  'templates/tpl_home_hero/fadb3777-0223-49b3-acdf-a7450a1b57d5.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates
+              SET reference_asset_id = 'asset_tpl_home_hero_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Bright home kitchen with a diagonal dark-to-light backdrop and restrained fresh green accents",
+                    "composition": "Show the complete source product centered over the diagonal; large headline above and small supported fact blocks at the side",
+                    "lighting": "Natural window light with a clear product silhouette, soft shadows and readable source colors and labels",
+                    "style": "Clean home marketplace card with bold headline, compact badges and green graphic accents; omit unsupported claims",
+                    "palette": ["#F1F2EC", "#C9CDC1", "#252A22", "#86B721", "#427A46"],
+                    "avoid": [
+                      "verbatim reference slogans, brand or cleaning claims",
+                      "before-and-after labels or results without real comparable evidence",
+                      "invented effectiveness, ingredients, safety or certifications",
+                      "extra products, prices or unsupported product views",
+                      "changes to source product shape, color, branding or visible labels"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_home_hero';

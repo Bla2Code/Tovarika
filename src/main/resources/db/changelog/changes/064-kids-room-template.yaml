@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 064-kids-room-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_kids_lifestyle_ref', 'template_reference', 'image/webp',
+                  26394, 384, 512,
+                  'templates/tpl_kids_lifestyle/d434b4f9-366f-43e2-a2fa-bc374afdc2ee.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Kids room',
+                  category_id = 'cat_kids',
+                  sort_order = 30,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_kids_lifestyle_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Bright child-friendly room with soft neutral furniture and a few suitable props kept separate from the source product",
+                    "composition": "Source product fully visible at center; large muted blue headline behind it and optional rounded fact badges at the sides",
+                    "lighting": "Soft natural daylight, gentle room shadows and an airy pale background",
+                    "style": "Calm home lifestyle card with oversized blue typography and rounded side badges using only verified product facts",
+                    "palette": ["#F4F2ED", "#A7BEC2", "#477078", "#C3A17F", "#FFFFFF"],
+                    "avoid": [
+                      "verbatim chair text, age 11 claim, included cushion claim or demonstration branding",
+                      "invented ages, dimensions, materials, safety claims, accessories or product properties",
+                      "child or room props presented as part of the source product or its package",
+                      "decorative page numbers and progress markers",
+                      "changes to source product shape, color, package or visible branding"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_kids_lifestyle';

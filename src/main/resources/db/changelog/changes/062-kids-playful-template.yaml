@@ -1,0 +1,40 @@
+databaseChangeLog:
+  - changeSet:
+      id: 062-kids-playful-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload assets/templates/tpl_kids_accent/84f15ca8-1466-4c5a-88a9-c58c9d171d44.webp to MinIO before deployment.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_kids_accent_ref', 'template_reference', 'image/webp',
+                  18684, 384, 512,
+                  'templates/tpl_kids_accent/84f15ca8-1466-4c5a-88a9-c58c9d171d44.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Kids playful',
+                  reference_asset_id = 'asset_tpl_kids_accent_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Bright turquoise studio background with a few soft decorative clouds and restrained orange accent shapes",
+                    "composition": "Source product fully visible at center; large rounded white and yellow headline around upper sides, brief factual badge in open space",
+                    "lighting": "Even cheerful studio light, gentle highlights and natural contact shadow; keep source product colors intact",
+                    "style": "Playful kids retail poster with oversized friendly lettering and small rounded badges; rewrite every overlay from user facts",
+                    "palette": ["#00BAD1", "#FFF9F1", "#FFBF00", "#FF6B08", "#0D5360"],
+                    "avoid": [
+                      "verbatim Portuguese reference text, slogans or branding",
+                      "a child or extra toys unless supported by the source product",
+                      "invented age labels, safety claims, specifications or prices",
+                      "unsupported product parts, accessories or views",
+                      "changes to source product shape, colors or branding",
+                      "text covering the product or leaving safe margins"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_kids_accent' AND category_id = 'cat_kids';

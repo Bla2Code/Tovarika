@@ -1,0 +1,40 @@
+databaseChangeLog:
+  - changeSet:
+      id: 024-fashion-accent-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload assets/templates/tpl_fashion_accent/3989ac29-8894-40ec-9080-e8527193e47e.webp to MinIO before deployment.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_accent_ref', 'template_reference', 'image/webp',
+                  22806, 384, 512,
+                  'templates/tpl_fashion_accent/3989ac29-8894-40ec-9080-e8527193e47e.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Крупный заголовок и акценты',
+                  reference_asset_id = 'asset_tpl_fashion_accent_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Off-white editorial background with a tall charcoal rounded panel on the right and muted dusty-rose accents",
+                    "composition": "Large headline upper left; source product dominant at center-right over the dark panel; two feature callouts left; compact badges upper right",
+                    "lighting": "Soft even fashion-studio light with natural fabric texture and subtle shadows",
+                    "style": "Minimal fashion infographic with bold black sans-serif headline, pale gray subheads, thin arrow markers, white callout bars and compact badges",
+                    "palette": ["#F7F7F6", "#26272A", "#484848", "#C28F94", "#B7B5B4"],
+                    "avoid": [
+                      "verbatim reference text, product, model or branding",
+                      "unverified sizes, origin claims, production methods or color variants",
+                      "one-size labels or numeric badges without source evidence",
+                      "adding a person when the source photo contains only a product",
+                      "changes to the source product identity, colors, labels or branding",
+                      "text covering the source product or extending beyond safe margins"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_fashion_accent' AND category_id = 'cat_fashion';

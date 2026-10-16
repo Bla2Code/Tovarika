@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 054-food-clean-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_food_hero_ref', 'template_reference', 'image/webp',
+                  26580, 384, 512,
+                  'templates/tpl_food_hero/0bebf79d-d720-4e9b-af2e-82a1dff30944.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Food clean',
+                  category_id = 'cat_food',
+                  sort_order = 10,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_food_hero_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Pastel cream, powder blue and blush tabletop fields divided by soft diagonals; sparse food props only when verified for the source product",
+                    "composition": "Source product fully visible as a diagonal hero; up to three distinct packs only if real variants are confirmed; compact factual labels",
+                    "lighting": "Soft bright studio light, natural gentle shadows and clear legibility of the source packaging",
+                    "style": "Clean premium food card with airy pastel blocks, restrained typography and short verified feature text near the product",
+                    "palette": ["#F6E0B5", "#D4E0EF", "#E9BCAE", "#F7F0D7", "#5C4036"],
+                    "avoid": [
+                      "verbatim reference brand, flavor names and wrapper claims",
+                      "invented ingredients, nutrition claims, prices or product variants",
+                      "fruit, nuts or other food props unrelated to the source product",
+                      "extra packs implying an unsupported bundle or assortment",
+                      "changes to source product shape, colors, labels or branding"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_food_hero';

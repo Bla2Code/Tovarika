@@ -1,0 +1,39 @@
+databaseChangeLog:
+  - changeSet:
+      id: 030-universal-hero-template
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to this exact storage key before applying the migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_universal_hero_ref', 'template_reference', 'image/webp',
+                  17196, 384, 512,
+                  'templates/tpl_universal_hero/72865f01-a3b3-4ad4-a575-89dd885edeb8.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates
+              SET reference_asset_id = 'asset_tpl_universal_hero_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Clean olive-green niche with a pale round stone podium, natural foliage at the edges and generous open wall space",
+                    "composition": "Place the entire source product centrally on the low round podium; keep foliage and rocks peripheral and open space above the product",
+                    "lighting": "Soft warm daylight from the side with gentle leaf shadows on the wall and natural product colors",
+                    "style": "Quiet botanical product photography, minimal decoration, restrained factual text only when supported by source information",
+                    "palette": ["#C6D0A8", "#AAB68C", "#697B4C", "#D9DEC5", "#F1F0DF"],
+                    "avoid": [
+                      "unrelated products or people",
+                      "foliage or stones covering the source product",
+                      "invented specifications, prices or claims",
+                      "unsupported product angles or unseen details",
+                      "changes to source product shape, colors, branding or visible labels",
+                      "reference-specific claims or decorative text without source facts"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_universal_hero';

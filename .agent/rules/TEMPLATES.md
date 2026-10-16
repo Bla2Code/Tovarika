@@ -36,7 +36,9 @@ Prompt — [CARD_PROMPTS.md](CARD_PROMPTS.md); подготовка файлов
   проверяются при подготовке; compiler проверяет лишь object/version и длину prompt.
   Не выдавай authoring-инструкцию за полную runtime-валидацию.
 
-Пример: [tpl_fashion_hero](../../assets/templates/tpl_fashion_hero/README.md).
+Пошаговая инструкция для новых шаблонов — [assets/templates/README.md](../../assets/templates/README.md).
+Примеры: [tpl_fashion_hero](../../assets/templates/tpl_fashion_hero/README.md),
+[tpl_fashion_accent](../../assets/templates/tpl_fashion_accent/README.md).
 Правила переноса текста/палитры и достоверности товара — [CARD_PROMPTS.md](CARD_PROMPTS.md).
 
 ## 3. Сценарии серии
@@ -56,11 +58,12 @@ Prompt — [CARD_PROMPTS.md](CARD_PROMPTS.md); подготовка файлов
   о демонстрационном товаре. Отсутствующий признак требует запасного варианта, а не выдумки.
 - Хранение и seed добавляются новыми миграциями; исходный набор служит входом
   проверяемого скрипта подготовки data migration. Опубликованные changeset неизменяемы.
-- Остальные шаблоны и скрытый универсальный добавляются после отладки первого набора.
-  Будущую скрытость в каталоге отделяй от available: недоступный шаблон сейчас
-  нельзя использовать для генерации.
+- Второй набор для `tpl_fashion_accent` хранится рядом с его reference и загружается
+  миграцией `025`. Будущую скрытость в каталоге отделяй от available: недоступный
+  шаблон сейчас нельзя использовать для генерации.
 
-- `python3 scripts/seed-card-variants.py --check` валидирует источник без записи.
+- `python3 scripts/seed-card-variants.py --check` валидирует пример `tpl_fashion_hero` без записи;
+  для других шаблонов передавай `--source assets/templates/<templateId>/card-variants.json`.
   `--output` создаёт только новый numbered YAML; существующие/опубликованные файлы не перезаписываются.
 - Для правки набора создаётся новая data migration, затем включается в master. Worker и
   начатая серия не перечитывают обновлённый каталог. Название, общий recipe, reference ID

@@ -48,33 +48,35 @@ final class TechApplicationTests {
 	}
 
 	@Test
-	void fashionExampleIsTheOnlyConfiguredReferenceAndMatchesTheUploadFile() throws Exception {
-		var template = templates.generationTemplate("tpl_fashion_hero").orElseThrow();
-		assertThat(template.hasReference()).isTrue();
-		assertThat(template.referenceMediaType()).isEqualTo("image/webp");
+	void configuredFashionReferencesMatchTheirUploadFiles() throws Exception {
+		for (var id : java.util.List.of("tpl_fashion_hero", "tpl_fashion_accent")) {
+			var template = templates.generationTemplate(id).orElseThrow();
+			assertThat(template.hasReference()).isTrue();
+			assertThat(template.referenceMediaType()).isEqualTo("image/webp");
 
-		var file = Path.of("assets").resolve(template.referenceStorageKey());
-		var image = ImageIO.read(file.toFile());
-		assertThat(image).isNotNull();
-		assertThat(image.getWidth()).isEqualTo(384);
-		assertThat(image.getHeight()).isEqualTo(512);
-		assertThat(Files.size(file)).isLessThan(100 * 1024L);
-		var dimensions = jdbcClient.sql("SELECT size_bytes, width, height FROM assets WHERE id = :id")
-				.param("id", template.referenceAssetId())
-				.query((result, row) -> new int[] {
-						result.getInt("size_bytes"), result.getInt("width"), result.getInt("height")
-				})
-				.single();
-		assertThat(dimensions).containsExactly((int) Files.size(file), image.getWidth(), image.getHeight());
+			var file = Path.of("assets").resolve(template.referenceStorageKey());
+			var image = ImageIO.read(file.toFile());
+			assertThat(image).isNotNull();
+			assertThat(image.getWidth()).isEqualTo(384);
+			assertThat(image.getHeight()).isEqualTo(512);
+			assertThat(Files.size(file)).isLessThan(100 * 1024L);
+			var dimensions = jdbcClient.sql("SELECT size_bytes, width, height FROM assets WHERE id = :id")
+					.param("id", template.referenceAssetId())
+					.query((result, row) -> new int[] {
+							result.getInt("size_bytes"), result.getInt("width"), result.getInt("height")
+					})
+					.single();
+			assertThat(dimensions).containsExactly((int) Files.size(file), image.getWidth(), image.getHeight());
+		}
 
 		assertThat(jdbcClient.sql("SELECT COUNT(*) FROM templates WHERE reference_asset_id IS NOT NULL")
-				.query(Integer.class).single()).isEqualTo(1);
+				.query(Integer.class).single()).isEqualTo(2);
 		assertThat(templates.list(null, "cat_fashion", null, false, null, 20).items())
 				.filteredOn(item -> item.referenceAssetId() != null)
-				.singleElement().satisfies(item -> {
-					assertThat(item.id()).isEqualTo(template.id());
-					assertThat(item.name()).isEqualTo("Крупный заголовок и характеристики");
-				});
+				.extracting(item -> item.name())
+				.containsExactly("Крупный заголовок и характеристики", "Крупный заголовок и акценты");
+		assertThat(jdbcClient.sql("SELECT COUNT(*) FROM template_card_variants WHERE template_id = 'tpl_fashion_accent'")
+				.query(Integer.class).single()).isEqualTo(10);
 	}
 
 }

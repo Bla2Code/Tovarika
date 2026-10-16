@@ -14,10 +14,15 @@ def nonempty(value, limit):
 
 
 def validate(data):
-    if (type(data.get("schemaVersion")) is not int or data.get("schemaVersion") != 1 or data.get("kind") != "template-card-variants"
-            or data.get("templateId") != "tpl_fashion_hero"):
-        raise ValueError("Expected schemaVersion=1, template-card-variants, tpl_fashion_hero")
-    if not isinstance(data.get("sharedStyle"), dict) or data.get("referenceFile") != "reference.webp":
+    template_id = data.get("templateId")
+    if (type(data.get("schemaVersion")) is not int or data.get("schemaVersion") != 1
+            or data.get("kind") != "template-card-variants"
+            or not isinstance(template_id, str) or not re.fullmatch(r"tpl_[A-Za-z0-9_]+", template_id)
+            or len(template_id) > 32):
+        raise ValueError("Expected schemaVersion=1, template-card-variants and a valid templateId")
+    reference_file = data.get("referenceFile")
+    if (not isinstance(data.get("sharedStyle"), dict) or not isinstance(reference_file, str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+\.webp", reference_file)):
         raise ValueError("Missing sharedStyle or referenceFile")
     variants = data.get("variants")
     if not isinstance(variants, list) or len(variants) != 10:
@@ -25,7 +30,7 @@ def validate(data):
     ids, positions = set(), set()
     for variant in variants:
         vid, pos = variant.get("id"), variant.get("position")
-        if not isinstance(vid, str) or not re.fullmatch(r"tpl_fashion_hero_[A-Za-z0-9_]{1,23}", vid) or len(vid) > 40:
+        if type(pos) is not int or not isinstance(vid, str) or vid != f"{template_id}_v{pos:02d}" or len(vid) > 40:
             raise ValueError("Invalid variant ID")
         if type(pos) is not int or not 1 <= pos <= 10 or vid in ids or pos in positions:
             raise ValueError("Duplicate ID/position or invalid position")
@@ -41,6 +46,8 @@ def validate(data):
         conditions = recipe.get("conditions")
         if not isinstance(conditions, list) or not conditions or not all(nonempty(c, 2000) for c in conditions):
             raise ValueError("Invalid conditions")
+    if positions != set(range(1, 11)):
+        raise ValueError("Positions must cover 1–10")
     return sorted(variants, key=lambda v: v["position"])
 
 
@@ -58,7 +65,11 @@ def main():
     if args.source.name.startswith(".env") or args.source.name == "openai_api_key" or "/run/secrets/" in str(args.source.resolve()):
         parser.error("Sensitive source path is forbidden")
     try:
-        variants = validate(json.loads(args.source.read_text(encoding="utf-8")))
+        data = json.loads(args.source.read_text(encoding="utf-8"))
+        variants = validate(data)
+        template_id = data["templateId"]
+        if args.source.parent.name != template_id or not (args.source.parent / data["referenceFile"]).is_file():
+            raise ValueError("Source directory and reference image must match templateId/referenceFile")
         if args.check:
             print("Card variants: OK (10)")
             return
@@ -76,7 +87,7 @@ def main():
         rows = []
         for v in variants:
             recipe = json.dumps(v["generationRecipe"], ensure_ascii=False, separators=(",", ":"))
-            rows.append("(" + ", ".join([sql_literal(v["id"]), "'tpl_fashion_hero'", str(v["position"]),
+            rows.append("(" + ", ".join([sql_literal(v["id"]), sql_literal(template_id), str(v["position"]),
                                         sql_literal(v["title"]), sql_literal(v["defaultIdea"]),
                                         sql_literal(recipe) + "::jsonb"]) + ")")
         sql = ("SET LOCAL standard_conforming_strings = on;\n"
@@ -84,7 +95,7 @@ def main():
                + ",\n".join(rows)
                + "\nON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, default_idea=EXCLUDED.default_idea,\n"
                  "generation_recipe=EXCLUDED.generation_recipe\n"
-                 "WHERE template_card_variants.template_id='tpl_fashion_hero'\n"
+                 "WHERE template_card_variants.template_id=" + sql_literal(template_id) + "\n"
                  "AND template_card_variants.position=EXCLUDED.position;\n")
         content = ("databaseChangeLog:\n  - changeSet:\n      id: " + output.stem
                    + "\n      author: codex\n      runInTransaction: true\n      changes:\n"

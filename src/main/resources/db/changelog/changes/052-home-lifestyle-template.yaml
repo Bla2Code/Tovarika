@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 052-home-lifestyle-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_home_lifestyle_ref', 'template_reference', 'image/webp',
+                  49074, 384, 512,
+                  'templates/tpl_home_lifestyle/6fc562dc-410d-419d-bcad-766ab3a5357d.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Tech workspace',
+                  category_id = 'cat_home',
+                  sort_order = 30,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_home_lifestyle_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Dark textured kitchen surface with sparse herbs, spices, salad and checked cloth at the edges; use neutral home decor if kitchen context does not fit",
+                    "composition": "Source product large and fully visible, naturally angled; pale headline above and up to two verified short facts beside it",
+                    "lighting": "Soft directional light on the product with controlled highlights and a deep, readable charcoal background",
+                    "style": "Home product card with bold pale heading, compact verified fact lines and one restrained red accent badge when supported",
+                    "palette": ["#202321", "#555957", "#F5F4EE", "#A5BD45", "#C52F2B"],
+                    "avoid": [
+                      "verbatim knife text, sharpness or handle claims and 1 pc badge from the reference",
+                      "invented benefits, material, dimensions, quantity, price or included accessories",
+                      "food or kitchen props around a source product that does not belong in a kitchen",
+                      "extra products or unsupported product details and views",
+                      "changes to source product shape, color, labels or branding"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_home_lifestyle';

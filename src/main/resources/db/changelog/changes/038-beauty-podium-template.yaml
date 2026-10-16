@@ -1,0 +1,40 @@
+databaseChangeLog:
+  - changeSet:
+      id: 038-beauty-podium-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload assets/templates/tpl_beauty_accent/18a87b87-a0ab-4db7-92e1-a430f8d0d252.webp to MinIO before deployment.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_beauty_accent_ref', 'template_reference', 'image/webp',
+                  23064, 384, 512,
+                  'templates/tpl_beauty_accent/18a87b87-a0ab-4db7-92e1-a430f8d0d252.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Beauty podium',
+                  reference_asset_id = 'asset_tpl_beauty_accent_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Warm beige beauty studio with a low pale stone podium and delicate botanical shadows",
+                    "composition": "Source product fully visible on the podium at right; large elegant title and short factual text blocks at left, with generous margins",
+                    "lighting": "Warm angled sunlight, soft botanical shadows and natural contact shadow; preserve the source product color",
+                    "style": "Premium beauty editorial with thin serif headline, restrained dividers and small factual captions rewritten for the user product",
+                    "palette": ["#F1DED0", "#D5AF85", "#B68255", "#745540", "#3A2B24"],
+                    "avoid": [
+                      "verbatim reference slogans, brand, labels or pictograms",
+                      "unsupported ingredient, volume or efficacy claims",
+                      "invented prices, specifications or color variants",
+                      "extra cosmetic products or unsupported product views",
+                      "changes to source product packaging, color or branding",
+                      "text overlapping the product or extending beyond safe margins"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_beauty_accent' AND category_id = 'cat_beauty';

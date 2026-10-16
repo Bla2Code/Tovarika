@@ -1,0 +1,38 @@
+databaseChangeLog:
+  - changeSet:
+      id: 042-tech-studio-template
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to this exact storage key before applying the migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_electronics_hero_ref', 'template_reference', 'image/webp',
+                  17286, 384, 512,
+                  'templates/tpl_electronics_hero/dfb128d9-28d1-4c58-a4fd-1468a7eab7f9.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates
+              SET reference_asset_id = 'asset_tpl_electronics_hero_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Clean white and pale gray electronics studio with restrained chrome decorations at the edges",
+                    "composition": "Place the complete source device large on a diagonal; headline above, a dark fact badge left and short supported features right",
+                    "lighting": "Soft high-key studio light, gentle dimensional shadow and readable details in the source product colors",
+                    "style": "Precise technology card with oversized dark heading, compact secondary type and factual callouts; omit unsupported blocks",
+                    "palette": ["#F8F8F8", "#D9DBE0", "#777987", "#282A36", "#4D68B4"],
+                    "avoid": [
+                      "verbatim reference name, brand or product claims",
+                      "unverified battery life, haptics, speaker or connectivity claims",
+                      "gift promotions, cables or extra products",
+                      "invented specifications, prices or unsupported product views",
+                      "changes to source product shape, color, branding or visible labels"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_electronics_hero';

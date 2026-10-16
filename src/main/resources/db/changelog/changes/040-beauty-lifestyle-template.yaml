@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 040-beauty-lifestyle-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_beauty_lifestyle_ref', 'template_reference', 'image/webp',
+                  23282, 384, 512,
+                  'templates/tpl_beauty_lifestyle/a70ca180-c887-4e62-a18d-e33584f3664f.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Лёгкий lifestyle',
+                  category_id = 'cat_beauty',
+                  sort_order = 30,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_beauty_lifestyle_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Soft sage-green beauty setting with foliage and small decorative water drops; foam only for confirmed cleansing products",
+                    "composition": "Source product large and fully visible in the center; leaves frame the edges, with clear space for brief verified headings and facts",
+                    "lighting": "Diffused natural daylight, soft reflections and gentle shadows without hiding package details",
+                    "style": "Fresh skincare lifestyle image, airy green palette and restrained readable typography based only on user product facts",
+                    "palette": ["#C4D5B9", "#95B28D", "#456B42", "#F2F5EB", "#749B70"],
+                    "avoid": [
+                      "verbatim Anua branding, percentages, retinol, volume or claims from the reference",
+                      "unverified ingredients, effects, usage claims or product specifications",
+                      "foam for products without a confirmed cleansing purpose",
+                      "people, extra products or hidden package details absent from the source",
+                      "changes to source product color, geometry, labels or branding"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_beauty_lifestyle';

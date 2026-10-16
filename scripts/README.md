@@ -1,16 +1,17 @@
 # Сценарии карточек
 
-Источник данных — `assets/templates/tpl_fashion_hero/card-variants.json`.
-Проверка без записи:
+По умолчанию источник — `assets/templates/tpl_fashion_hero/card-variants.json`.
+Для другого шаблона передайте `--source`. Проверка без записи:
 
 ```sh
 python3 scripts/seed-card-variants.py --check
+python3 scripts/seed-card-variants.py --source assets/templates/tpl_fashion_accent/card-variants.json --check
 ```
 
 Для нового набора изменений выберите следующий свободный номер миграции:
 
 ```sh
-python3 scripts/seed-card-variants.py --output src/main/resources/db/changelog/changes/NNN-fashion-card-variants.yaml
+python3 scripts/seed-card-variants.py --source assets/templates/tpl_fashion_accent/card-variants.json --output src/main/resources/db/changelog/changes/NNN-fashion-card-variants.yaml
 ```
 
 Скрипт требует новый файл; существующий файл, в том числе опубликованный в HEAD,

@@ -1,0 +1,39 @@
+databaseChangeLog:
+  - changeSet:
+      id: 036-beauty-clean-template
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to this exact storage key before applying the migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_beauty_hero_ref', 'template_reference', 'image/webp',
+                  15986, 384, 512,
+                  'templates/tpl_beauty_hero/6ddc1c1e-9730-44b5-8321-1595bf7fbd70.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates
+              SET reference_asset_id = 'asset_tpl_beauty_hero_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Pale sage beauty studio with peripheral leaves, smooth wet stones and a subtle water reflection",
+                    "composition": "Keep the entire source product prominent on the right; reserve the left for a large verified heading and short factual lines",
+                    "lighting": "Soft diffused daylight with gentle highlights on the package and natural product colors",
+                    "style": "Clean botanical beauty card with elegant large heading, smaller subtitle and spaced factual text; omit unsupported copy",
+                    "palette": ["#CFDDD4", "#A7BFB0", "#6D9C65", "#304B32", "#EEF3EC"],
+                    "avoid": [
+                      "verbatim reference brand, product name, ingredients, percentages or effects",
+                      "invented cosmetic claims, specifications or prices",
+                      "extra products or people",
+                      "leaves or stones covering the source product or verified copy",
+                      "unsupported product angles or unseen package details",
+                      "changes to source product shape, color, branding or visible labels"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_beauty_hero';

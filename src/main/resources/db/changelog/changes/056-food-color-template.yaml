@@ -1,0 +1,41 @@
+databaseChangeLog:
+  - changeSet:
+      id: 056-food-color-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload assets/templates/tpl_food_accent/d5afe416-9503-430b-b39f-47187eabf0f7.webp to MinIO before deployment.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_food_accent_ref', 'template_reference', 'image/webp',
+                  33064, 384, 512,
+                  'templates/tpl_food_accent/d5afe416-9503-430b-b39f-47187eabf0f7.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Food color',
+                  reference_asset_id = 'asset_tpl_food_accent_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Vivid red food-advertising studio with glossy droplets; ingredient props only when supported by source product facts",
+                    "composition": "Source product fully visible at center; oversized white headline above, compact factual callouts near lower corners with clear margins",
+                    "lighting": "Bright commercial key light, glossy highlights and natural contact shadow; preserve original product colors",
+                    "style": "Energetic grocery advertising with bold white display typography, concise callouts and dynamic splashes; rewrite overlays from user facts",
+                    "palette": ["#E51610", "#A40D0D", "#680B0B", "#FFF2EC", "#171111"],
+                    "avoid": [
+                      "verbatim reference brand, slogan, labels or pictograms",
+                      "unsupported ingredients, sugar, calorie or nutrition claims",
+                      "invented weights, prices or product variants",
+                      "strawberries or other food props without source evidence",
+                      "extra products or unsupported product views",
+                      "changes to source product packaging, color or branding",
+                      "text overlapping the product or extending beyond safe margins"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_food_accent' AND category_id = 'cat_food';

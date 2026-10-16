@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 046-tech-workspace-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_electronics_lifestyle_ref', 'template_reference', 'image/webp',
+                  27256, 384, 512,
+                  'templates/tpl_electronics_lifestyle/ce3d7f9a-324e-422f-b3ee-43910340ccb7.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Tech workspace',
+                  category_id = 'cat_electronics',
+                  sort_order = 30,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_electronics_lifestyle_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Deep blue product studio with a minimal dark blue work surface and simple geometric backdrop; no other devices",
+                    "composition": "Source product large and fully visible; oversized verified heading above, with short fact blocks and restrained badges at the edges",
+                    "lighting": "Cool directional light, soft blue highlights and deep controlled shadows that preserve product details",
+                    "style": "Tech product card with bold sans-serif hierarchy, concise verified specs and spare blue graphic accents",
+                    "palette": ["#0B1D3B", "#174681", "#4D8DCD", "#A8D4F4", "#F2F8FF"],
+                    "avoid": [
+                      "verbatim ATK or A9 Air branding, PAW3955, 50000 dpi or 8000 Hz from the reference",
+                      "copied 2.4 G, USB or Bluetooth icons and unverified connectivity claims",
+                      "invented specifications, prices, compatibility or color variants",
+                      "extra devices, desk accessories, people or unsupported product views",
+                      "changes to source product geometry, color, labels or branding"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_electronics_lifestyle';

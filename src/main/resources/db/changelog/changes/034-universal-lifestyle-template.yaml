@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 034-universal-lifestyle-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to the exact storage key below before applying this migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_universal_lifestyle_ref', 'template_reference', 'image/webp',
+                  25484, 384, 512,
+                  'templates/tpl_universal_lifestyle/0ed156b9-b0ba-4ec6-a7b0-2e9535e18790.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Лёгкий lifestyle',
+                  category_id = 'cat_universal',
+                  sort_order = 30,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_universal_lifestyle_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Warm wooden display podium in a leafy courtyard with a softly blurred background",
+                    "composition": "Source product fully visible and dominant on the front podium; keep the courtyard in soft focus and optional short factual text in clear space",
+                    "lighting": "Natural soft daylight with gentle realistic shadows on wood and product",
+                    "style": "Restrained lifestyle product photography with warm timber, greenery and minimal readable captions based on user facts",
+                    "palette": ["#BE8B5F", "#795238", "#35472A", "#9A9E6C", "#D6C4A6"],
+                    "avoid": [
+                      "verbatim reference elements or unsupported usage claims",
+                      "people or extra products absent from the source photo",
+                      "invented materials, dimensions or hidden details",
+                      "changes to source product identity, colors, labels or branding",
+                      "text covering the product or crossing safe margins"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_universal_lifestyle';
