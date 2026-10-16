@@ -87,6 +87,23 @@ services:
       timeout: 5s
       retries: 10
 
+  template-assets-init:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    profiles: ["template-sync"]
+    entrypoint: ["/bin/sh", "/sync/sync-template-assets.sh"]
+    command: []
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-tovarika}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-tovarika-secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-user-images}
+    volumes:
+      - ./template-assets:/template-assets:ro
+      - ./sync-template-assets.sh:/sync/sync-template-assets.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+
 networks:
   edge:
     name: tovarika-edge

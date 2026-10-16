@@ -22,7 +22,7 @@ PS5, «6 часов», виброотклик, встроенный динами
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_electronics_hero/dfb128d9-28d1-4c58-a4fd-1468a7eab7f9.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_electronics_hero/dfb128d9-28d1-4c58-a4fd-1468a7eab7f9.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Запустить приложение с Liquibase: миграция `042` добавит asset и обновит существующий шаблон, миграция `043` добавит десять сценариев.
 3. Открыть категорию «Электроника и техника» или вызвать `GET /api/v1/templates?categoryId=cat_electronics` для просмотра превью.
 

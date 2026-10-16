@@ -22,6 +22,6 @@ Reference подготовлен по предоставленному JPG: со
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_kids_lifestyle/d434b4f9-366f-43e2-a2fa-bc374afdc2ee.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_kids_lifestyle/d434b4f9-366f-43e2-a2fa-bc374afdc2ee.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Подключить миграции `064` и `065` в конце `db.changelog-master.yaml` после `063`, затем запустить приложение с Liquibase.
 3. Открыть категорию «Детские товары» или вызвать `GET /api/v1/templates?categoryId=cat_kids` для просмотра превью.

@@ -1,0 +1,36 @@
+databaseChangeLog:
+  - changeSet:
+      id: 066-fashion-hero-reference-v2
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_hero_ref_v2', 'template_reference', 'image/webp',
+                  20436, 384, 512,
+                  'templates/tpl_fashion_hero/a384c738-eca7-4f56-b02c-08edbe2858f7.webp', '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  reference_asset_id = 'asset_tpl_fashion_hero_ref_v2',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Warm greige studio interior with a softly lit pedestal and architectural arch",
+                    "composition": "Tall marketplace layout with the source product centered or right, headline and feature list on the left, and detail panels along the bottom",
+                    "lighting": "Soft daylight from the left with realistic fabric texture and grounded shadows",
+                    "style": "Minimal premium apparel infographic with bold condensed headings, circular icons and framed detail panels; rewrite overlays using user facts",
+                    "palette": ["#D1C9C1", "#746C62", "#F6F3EE", "#1D1B19"],
+                    "avoid": [
+                      "verbatim reference text or reference branding",
+                      "invented specifications, prices, seasonal claims or color variants",
+                      "unrelated products or unsupported product views",
+                      "changes to source product identity, colors, labels or branding",
+                      "unreadable text or text covering the source product"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_fashion_hero' AND category_id = 'cat_fashion';

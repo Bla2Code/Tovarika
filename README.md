@@ -100,6 +100,14 @@ names без префикса `__Host-`, как уже настроено в `co
 не должны попадать в Git или logs. Для деплоя `JWT_SECRET_BASE64` хранится в GitHub Secret и workflow
 записывает его в `/home/deploy/tovarika-backend/.env` перед `docker compose up`.
 
+## Reference-файлы шаблонов
+
+Reference WebP хранятся в `assets/templates`. Backend-деплой передаёт их на сервер и запускает
+одноразовый Compose job `template-assets-init`: он загружает отсутствующие файлы в MinIO до запуска
+Spring Boot и Liquibase, а существующие объекты сверяет с версией в Git по SHA-256. Job не удаляет и не
+перезаписывает опубликованные объекты. Для замены reference создайте новый ключ, новую запись `assets` и
+Liquibase-миграцию, переключающую `reference_asset_id`.
+
 ## Развертывание
 
 Продакшн-развертывание выполняется через [.github/workflows/deploy.yml](.github/workflows/deploy.yml)

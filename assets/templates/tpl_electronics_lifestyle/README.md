@@ -20,7 +20,7 @@ Reference уменьшен из предоставленного PNG до раз
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_electronics_lifestyle/ce3d7f9a-324e-422f-b3ee-43910340ccb7.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_electronics_lifestyle/ce3d7f9a-324e-422f-b3ee-43910340ccb7.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Запустить приложение с Liquibase: миграция `046` обновит шаблон и добавит asset, миграция `047` — десять сценариев.
 3. Открыть категорию «Электроника и техника» или вызвать `GET /api/v1/templates?categoryId=cat_electronics` для просмотра превью.
 

@@ -22,7 +22,7 @@ Reference подготовлен из предоставленного JPG: тё
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_kids_hero/dac94340-4df4-454f-b4ea-8715c7384f2f.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_kids_hero/dac94340-4df4-454f-b4ea-8715c7384f2f.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Подключить `060-kids-clean-template.yaml`, затем `061-kids-clean-variants.yaml` к master changelog после ранее опубликованных миграций.
 3. Запустить приложение с Liquibase и открыть категорию «Детские товары» или вызвать `GET /api/v1/templates?categoryId=cat_kids` для просмотра превью.
 

@@ -22,7 +22,8 @@ Prompt — [CARD_PROMPTS.md](CARD_PROMPTS.md); подготовка файлов
 - templates.recipe_json — server-owned JSON с schemaVersion=1 и scene/composition/
   lighting/style/palette/avoid. Готовится и проверяется заранее, не извлекается приложением из фото.
 - Reference: Asset purpose template_reference, key templates/{templateId}/…;
-  image загружается вручную в MinIO, metadata/связь/recipe — новой Liquibase-миграцией.
+  backend-деплой синхронизирует image с MinIO до запуска приложения,
+  metadata/связь/recipe — новой Liquibase-миграцией.
   Загрузка должна предшествовать миграции, которая делает шаблон доступным.
 - Не переписывай опубликованные миграции по [MIGRATIONS.md](MIGRATIONS.md).
   При замене reference создай новый key/Asset, затем переключи ссылку новой миграцией;
@@ -37,6 +38,8 @@ Prompt — [CARD_PROMPTS.md](CARD_PROMPTS.md); подготовка файлов
   Не выдавай authoring-инструкцию за полную runtime-валидацию.
 
 Пошаговая инструкция для новых шаблонов — [assets/templates/README.md](../../assets/templates/README.md).
+Порядок backend deployment reference-файлов в MinIO —
+[TEMPLATE_ASSET_SYNC.md](TEMPLATE_ASSET_SYNC.md).
 Примеры: [tpl_fashion_hero](../../assets/templates/tpl_fashion_hero/README.md),
 [tpl_fashion_accent](../../assets/templates/tpl_fashion_accent/README.md).
 Правила переноса текста/палитры и достоверности товара — [CARD_PROMPTS.md](CARD_PROMPTS.md).

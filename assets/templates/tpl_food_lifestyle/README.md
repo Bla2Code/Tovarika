@@ -22,6 +22,6 @@ Reference подготовлен по предоставленному JPG: со
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_food_lifestyle/5d8a9ce9-d8a3-49ed-9777-9cdd3c1d5bb0.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_food_lifestyle/5d8a9ce9-d8a3-49ed-9777-9cdd3c1d5bb0.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Подключить миграции `058` и `059` в конце `db.changelog-master.yaml` после предыдущих миграций каталога; затем запустить приложение с Liquibase.
 3. Открыть категорию «Еда и напитки» или вызвать `GET /api/v1/templates?categoryId=cat_food` для просмотра превью.

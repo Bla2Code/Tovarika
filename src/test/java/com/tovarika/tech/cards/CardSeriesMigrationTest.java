@@ -33,12 +33,22 @@ class CardSeriesMigrationTest {
                 try(var sql=connection.createStatement();var rows=sql.executeQuery("select count(*) from template_card_variants where template_id='tpl_fashion_hero'")) {
                     rows.next(); assertThat(rows.getInt(1)).isEqualTo(10);
                 }
+                try(var sql=connection.createStatement();var rows=sql.executeQuery("select t.reference_asset_id,a.storage_key,a.size_bytes from templates t join assets a on a.id=t.reference_asset_id where t.id='tpl_fashion_hero'")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getString(1)).isEqualTo("asset_tpl_fashion_hero_ref_v3");
+                    assertThat(rows.getString(2)).isEqualTo("templates/tpl_fashion_hero/reference-v3.webp");
+                    assertThat(rows.getLong(3)).isEqualTo(26576);
+                }
+                try(var sql=connection.createStatement();var rows=sql.executeQuery("select generation_recipe->>'composition' from template_card_variants where id='tpl_fashion_hero_v01'")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getString(1)).contains("до двух карточек различимых деталей снизу");
+                }
                 try(var sql=connection.createStatement();var rows=sql.executeQuery("select prompt,status,variant_snapshot,card_series_snapshot,reference_asset_snapshot_id from cards join projects on projects.id=cards.project_id where cards.id='card_old'")) {
                     assertThat(rows.next()).isTrue();
                     assertThat(rows.getString(1)).isEqualTo("saved original prompt");
                     assertThat(rows.getString(2)).isEqualTo("ready");
                     assertThat(rows.getString(3)).isNull(); assertThat(rows.getString(4)).isNull();
-                    assertThat(rows.getString(5)).isNotBlank();
+                    assertThat(rows.getString(5)).isEqualTo("asset_tpl_fashion_hero_ref");
                 }
                 connection.setAutoCommit(true);
                 assertThatThrownBy(()->{try(var sql=connection.createStatement()) { sql.execute("insert into template_card_variants select 'duplicate_variant',template_id,position,title,default_idea,generation_recipe from template_card_variants where position=1"); }})

@@ -1,0 +1,9 @@
+Use case: ads-marketing.
+Asset type: finished marketplace product-card template reference for fashion, final thumbnail 384×512, portrait 3:4.
+Style reference: the prior greige fashion reference; do not copy its logo, words, claims or small text.
+Scene: warm greige architectural studio, soft daylight, shallow arch and low round podium.
+Subject: one neutral taupe two-piece casual tracksuit shown fully on a clean invisible mannequin or product form, without a human head or extra footwear.
+Composition: product centered-right, large headline upper left, two framed close-ups of real visible garment details along the bottom. Keep every element inside 8% safe margins.
+Exact visible text only: «КОСТЮМ», «ДЕТАЛИ», «ФАКТУРА». Use large, readable Cyrillic typography; no other words or microtext.
+Avoid: brands, logos, prices, seasonal or quality claims, measurements, badges, color swatches, watermarks and UI chrome.
+Final preparation: resize the generated 3:4 image to 384×512 with Lanczos and save as WebP at quality 88.

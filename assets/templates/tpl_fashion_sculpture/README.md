@@ -20,7 +20,7 @@ Reference подготовлен из предоставленного поль�
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_fashion_sculpture/4a00b821-2689-4390-ab6b-c06e15210c6a.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_fashion_sculpture/4a00b821-2689-4390-ab6b-c06e15210c6a.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Запустить приложение с Liquibase: миграция `028` добавит asset и шаблон, миграция `029` — десять сценариев.
 3. Открыть категорию «Одежда и обувь» или вызвать `GET /api/v1/templates?categoryId=cat_fashion` для просмотра превью.
 

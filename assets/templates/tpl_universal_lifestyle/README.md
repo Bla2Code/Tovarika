@@ -20,7 +20,7 @@ Reference уменьшен из предоставленного пользов�
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_universal_lifestyle/0ed156b9-b0ba-4ec6-a7b0-2e9535e18790.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_universal_lifestyle/0ed156b9-b0ba-4ec6-a7b0-2e9535e18790.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Запустить приложение с Liquibase: миграция `034` обновит шаблон и добавит asset, миграция `035` — десять сценариев.
 3. Открыть категорию «Универсальные» или вызвать `GET /api/v1/templates?categoryId=cat_universal` для просмотра превью.
 

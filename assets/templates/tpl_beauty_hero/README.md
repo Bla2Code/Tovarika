@@ -20,7 +20,7 @@ Reference уменьшен из предоставленного пользов�
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_beauty_hero/6ddc1c1e-9730-44b5-8321-1595bf7fbd70.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_beauty_hero/6ddc1c1e-9730-44b5-8321-1595bf7fbd70.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Запустить приложение с Liquibase: миграция `036` добавит asset и обновит существующий шаблон, миграция `037` добавит десять сценариев.
 3. Открыть категорию «Красота и уход» или вызвать `GET /api/v1/templates?categoryId=cat_beauty` для просмотра превью.
 

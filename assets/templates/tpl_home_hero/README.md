@@ -22,7 +22,7 @@ Reference подготовлен из предоставленного JPG. В �
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_home_hero/fadb3777-0223-49b3-acdf-a7450a1b57d5.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_home_hero/fadb3777-0223-49b3-acdf-a7450a1b57d5.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Запустить приложение с Liquibase: миграция `048` добавит asset и обновит существующий шаблон, миграция `049` добавит десять сценариев.
 3. Открыть категорию «Дом и интерьер» или вызвать `GET /api/v1/templates?categoryId=cat_home` для просмотра превью.
 

@@ -141,7 +141,15 @@
     },
     {
       "path": "deploy/docker-compose.prod.yml",
-      "purpose": "Production-стек приложения, PostgreSQL и MinIO."
+      "purpose": "Production-стек приложения, PostgreSQL и MinIO, включая одноразовый template-assets-init job."
+    },
+    {
+      "path": "deploy/activate-backend-deploy.sh",
+      "purpose": "Общий финальный шаг backend deployment: staging template assets, запуск MinIO, одноразовая синхронизация reference и старт приложения."
+    },
+    {
+      "path": "deploy/sync-template-assets.sh",
+      "purpose": "Логика template-assets-init: публикация новых WebP в MinIO и SHA-256-проверка неизменяемости опубликованных объектов."
     },
     {
       "path": ".github/workflows/deploy.yml",
@@ -186,6 +194,10 @@
     {
       "path": ".agent/rules/TEMPLATES.md",
       "purpose": "Каталог/favorites, recipe/reference, подготовка и неизменяемость snapshots."
+    },
+    {
+      "path": ".agent/rules/TEMPLATE_ASSET_SYNC.md",
+      "purpose": "Порядок одноразовой синхронизации reference-файлов шаблонов в MinIO во время backend deployment."
     },
     {
       "path": ".agent/rules/IMAGE_GENERATION.md",
@@ -373,6 +385,7 @@
     "Сервис app в локальном Compose относится к профилю full; обычный docker compose up запускает только PostgreSQL и MinIO.",
     "Схема базы данных изменяется только новыми changeset-файлами Liquibase.",
     "Изображения хранятся в MinIO, а в PostgreSQL должны храниться только их метаданные и object key.",
+    "Reference-файлы шаблонов публикуются только одноразовым template-assets-init job до запуска Liquibase; опубликованный object key не перезаписывается.",
     "Перед изменением authentication, authorization, cookies, CORS/CSRF, OAuth, sessions или protected endpoint обязательно применяется .agent/rules/SECURITY.md.",
     "Authentication security semantics проверяются на PostgreSQL 18 через Testcontainers; H2 для locking/concurrency не используется.",
     "JWT_SECRET_BASE64 не имеет значения по умолчанию и должен быть стабильным production secret длиной не менее 256 бит.",
@@ -390,6 +403,7 @@
       "cardGeneration": ".agent/rules/CARD_GENERATION.md",
       "cardPrompts": ".agent/rules/CARD_PROMPTS.md",
       "templates": ".agent/rules/TEMPLATES.md",
+      "templateAssetSync": ".agent/rules/TEMPLATE_ASSET_SYNC.md",
       "imageGeneration": ".agent/rules/IMAGE_GENERATION.md",
       "productAnalysis": ".agent/rules/PRODUCT_ANALYSIS.md",
       "products": ".agent/rules/PRODUCTS.md",

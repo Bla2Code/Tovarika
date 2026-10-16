@@ -20,7 +20,7 @@
 
 ## Как подключить и проверить
 
-1. До применения миграции загрузить WebP в bucket приложения по точному ключу `templates/tpl_electronics_accent/1bf4e5e4-53fc-48aa-9276-90e8023b0b17.webp` с Content-Type `image/webp`. Префикс `assets/` и имя bucket в ключ не входят.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_electronics_accent/1bf4e5e4-53fc-48aa-9276-90e8023b0b17.webp` с Content-Type `image/webp`. Префикс `assets/` и имя bucket в ключ не входят.
 2. Подключить миграции `044` и `045` в `db.changelog-master.yaml` после предыдущих номеров и запустить приложение с Liquibase. `044` создаст запись `assets` и обновит шаблон; `045` добавит десять вариантов.
 3. Открыть категорию «Электроника и техника» или вызвать `GET /api/v1/templates?categoryId=cat_electronics`; у «Tech neon» должно появиться превью.
 4. В режиме `OPENAI_MODE=live` проверить генерацию с собственным фото товара. Результат должен сохранить его форму, реальные цвета, бренд и видимые надписи.

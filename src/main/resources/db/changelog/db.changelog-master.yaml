@@ -131,3 +131,11 @@ databaseChangeLog:
       file: db/changelog/changes/064-kids-room-template.yaml
   - include:
       file: db/changelog/changes/065-kids-room-variants.yaml
+  - include:
+      file: db/changelog/changes/066-fashion-hero-reference-v2.yaml
+  - include:
+      file: db/changelog/changes/067-fashion-hero-variants-v2.yaml
+  - include:
+      file: db/changelog/changes/068-fashion-hero-reference-v3.yaml
+  - include:
+      file: db/changelog/changes/069-fashion-hero-variants-v3.yaml

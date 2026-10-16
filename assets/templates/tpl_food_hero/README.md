@@ -22,7 +22,7 @@ Reference подготовлен из предоставленного JPG. Со
 
 ## Подключение
 
-1. **До применения миграций** загрузить WebP в bucket приложения по точному ключу `templates/tpl_food_hero/0bebf79d-d720-4e9b-af2e-82a1dff30944.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует WebP в bucket приложения по точному ключу `templates/tpl_food_hero/0bebf79d-d720-4e9b-af2e-82a1dff30944.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Подключить `054-food-clean-template.yaml`, затем `055-food-clean-variants.yaml` к master changelog после ранее опубликованных миграций. Порядок включения согласуется с остальными шаблонами категории.
 3. Запустить приложение с Liquibase и открыть категорию «Еда и напитки» или вызвать `GET /api/v1/templates?categoryId=cat_food` для просмотра превью.
 

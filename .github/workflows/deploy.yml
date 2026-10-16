@@ -52,6 +52,7 @@ jobs:
         run: |
           docker build -f Tovarika/Dockerfile -t "$IMAGE_NAME:latest" -t "$IMAGE_NAME:${{ github.sha }}" .
           docker save "$IMAGE_NAME:latest" | gzip > "/tmp/${IMAGE_NAME}.tar.gz"
+          tar -C Tovarika/assets -czf /tmp/template-assets.tar.gz templates
 
       - name: Prepare production env file
         env:
@@ -88,7 +89,9 @@ jobs:
           echo "GitHub runner public IP: ${RUNNER_IP:-unavailable}"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p $DEPLOY_DIR"
           scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "/tmp/${IMAGE_NAME}.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/${IMAGE_NAME}.tar.gz"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "/tmp/template-assets.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/template-assets.tar.gz"
           scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "Tovarika/deploy/docker-compose.prod.yml" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.prod.yml"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "Tovarika/deploy/activate-backend-deploy.sh" "Tovarika/deploy/sync-template-assets.sh" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
           scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "/tmp/${IMAGE_NAME}.env" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/.env"
           rm -f "/tmp/${IMAGE_NAME}.env"
 
@@ -100,11 +103,6 @@ jobs:
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ConnectionAttempts=5 "$DEPLOY_USER@$DEPLOY_HOST" <<'EOF'
           set -e
           cd /home/deploy/tovarika-backend
-          gunzip -c tovarika-backend.tar.gz | docker load
-          if ! docker network inspect tovarika-edge >/dev/null 2>&1; then
-            docker network create tovarika-edge >/dev/null 2>&1 || docker network inspect tovarika-edge >/dev/null 2>&1
-          fi
-          docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
-          rm -f tovarika-backend.tar.gz
-          docker image prune -f
+          chmod 755 activate-backend-deploy.sh sync-template-assets.sh
+          ./activate-backend-deploy.sh
           EOF

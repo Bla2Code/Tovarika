@@ -1,5 +1,9 @@
 # Сценарии карточек
 
+Этот каталог не публикует template assets в MinIO. `seed-card-variants.py` готовит
+только неизменяемые Liquibase-миграции; загрузку reference-файлов выполняет
+`template-assets-init` при backend-деплое.
+
 По умолчанию источник — `assets/templates/tpl_fashion_hero/card-variants.json`.
 Для другого шаблона передайте `--source`. Проверка без записи:
 

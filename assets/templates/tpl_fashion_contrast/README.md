@@ -20,7 +20,7 @@ Reference для категории **«Одежда и обувь»** (`cat_fas
 
 ## Подключение
 
-1. **До применения миграций** загрузить указанный WebP в bucket приложения по точному ключу `templates/tpl_fashion_contrast/69e9ffa5-dc91-41ec-b346-ec33a0bbf708.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
+1. Backend-деплой автоматически синхронизирует указанный WebP в bucket приложения по точному ключу `templates/tpl_fashion_contrast/69e9ffa5-dc91-41ec-b346-ec33a0bbf708.webp` с Content-Type `image/webp`. В ключ не входят имя bucket и префикс `assets/`.
 2. Запустить приложение с Liquibase: миграция `026` добавит asset и шаблон, миграция `027` — десять сценариев.
 3. Открыть категорию «Одежда и обувь» или вызвать `GET /api/v1/templates?categoryId=cat_fashion` для просмотра превью.
 
