@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 072-sport-studio-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to this exact storage key before applying the migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_sport_hero_ref', 'template_reference', 'image/webp',
+                  58552, 384, 512,
+                  'templates/tpl_sport_hero/de104448-b8d0-46f5-8f76-b4fbb43e8f7e.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Sport studio',
+                  category_id = 'cat_sport',
+                  sort_order = 10,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_sport_hero_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Indoor basketball court with dark navy gym background and polished wooden floor",
+                    "composition": "Source product large in lower center; oversized headline above, side fact icons, a round badge and a narrow bottom ribbon when verified",
+                    "lighting": "Cool overhead sports lighting, warm floor reflections and crisp highlights on product texture",
+                    "style": "High-contrast sports infographic with bold white and orange type, outlined fact icons and a painted orange bottom ribbon",
+                    "palette": ["#0A1B2A", "#263B4A", "#EF6A2A", "#F5F7F8", "#B6814C"],
+                    "avoid": [
+                      "verbatim reference copy or demonstration branding",
+                      "invented specifications, prices or performance claims",
+                      "phone numbers, web addresses or promotional calls to action",
+                      "unrelated equipment or unsupported product views",
+                      "changes to source product identity, color or visible branding"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_sport_hero';

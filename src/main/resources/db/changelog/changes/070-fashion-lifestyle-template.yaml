@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 070-fashion-lifestyle-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Upload the WebP to this exact storage key before applying the migration.
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_lifestyle_ref', 'template_reference', 'image/webp',
+                  24264, 384, 512,
+                  'templates/tpl_fashion_lifestyle/d69936bc-760f-49f8-a8b4-714d4889f643.webp',
+                  '', NULL, CURRENT_TIMESTAMP
+              );
+
+              UPDATE templates SET
+                  name = 'Fashion lifestyle',
+                  category_id = 'cat_fashion',
+                  sort_order = 30,
+                  available = true,
+                  reference_asset_id = 'asset_tpl_fashion_lifestyle_ref',
+                  recipe_json = '{
+                    "schemaVersion": 1,
+                    "scene": "Understated interior studio with a neutral wall, soft geometric furniture and gray floor",
+                    "composition": "Source product large at center; free wall space for a tall headline and two rounded translucent fact panels below",
+                    "lighting": "Soft diffused studio light, natural shadows and visible product texture",
+                    "style": "Calm fashion editorial with a tall thin headline, small captions and glasslike information panels",
+                    "palette": ["#C8BFB5", "#E5DED6", "#A9A5A2", "#6E6B68", "#242321"],
+                    "avoid": [
+                      "verbatim reference copy, brand, size or demonstration product claims",
+                      "invented specifications, prices, color variants or promises",
+                      "unrelated products, unsupported views or hidden details",
+                      "changes to source product shape, colors, branding or visible labels",
+                      "a model when no person is present in the source photo"
+                    ]
+                  }'::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = 'tpl_fashion_lifestyle';

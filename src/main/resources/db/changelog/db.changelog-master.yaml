@@ -139,3 +139,19 @@ databaseChangeLog:
       file: db/changelog/changes/068-fashion-hero-reference-v3.yaml
   - include:
       file: db/changelog/changes/069-fashion-hero-variants-v3.yaml
+  - include:
+      file: db/changelog/changes/070-fashion-lifestyle-template.yaml
+  - include:
+      file: db/changelog/changes/071-fashion-lifestyle-variants.yaml
+  - include:
+      file: db/changelog/changes/072-sport-studio-template.yaml
+  - include:
+      file: db/changelog/changes/073-sport-studio-variants.yaml
+  - include:
+      file: db/changelog/changes/074-sport-energy-template.yaml
+  - include:
+      file: db/changelog/changes/075-sport-energy-variants.yaml
+  - include:
+      file: db/changelog/changes/076-sport-outdoor-template.yaml
+  - include:
+      file: db/changelog/changes/077-sport-outdoor-variants.yaml
