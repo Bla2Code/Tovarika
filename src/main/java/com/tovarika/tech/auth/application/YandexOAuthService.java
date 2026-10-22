@@ -79,6 +79,26 @@ public class YandexOAuthService {
     }
 
     @Transactional
+    public String returnPathForAttempt(String rawCorrelation, String returnedState) {
+        return requireAttempt(rawCorrelation, returnedState).returnPath();
+    }
+
+    private OAuthAttempt requireAttempt(String rawCorrelation, String returnedState) {
+        if (rawCorrelation == null || returnedState == null) {
+            throw AuthException.unauthorized(AuthErrorCode.OAUTH_STATE_INVALID, "OAuth state is invalid");
+        }
+        OAuthAttempt attempt = store.lockOAuthAttempt(opaqueTokens.hash(rawCorrelation))
+                .orElseThrow(() -> AuthException.unauthorized(
+                        AuthErrorCode.OAUTH_STATE_INVALID, "OAuth state is invalid"));
+        if (!attempt.isUsableAt(clock.instant())
+                || !constantTimeEquals(attempt.stateHash(), opaqueTokens.hash(returnedState))) {
+            throw AuthException.unauthorized(AuthErrorCode.OAUTH_STATE_INVALID, "OAuth state is invalid");
+        }
+        validateReturnPath(attempt.returnPath());
+        return attempt;
+    }
+
+    @Transactional
     public OAuthCompletion complete(
             String rawCorrelation,
             String returnedState,
@@ -86,17 +106,8 @@ public class YandexOAuthService {
             String providerError,
             String rawTrialToken,
             RequestMetadata metadata) {
-        if (rawCorrelation == null || returnedState == null) {
-            throw AuthException.unauthorized(AuthErrorCode.OAUTH_STATE_INVALID, "OAuth state is invalid");
-        }
-        OAuthAttempt attempt = store.lockOAuthAttempt(opaqueTokens.hash(rawCorrelation))
-                .orElseThrow(() -> AuthException.unauthorized(
-                        AuthErrorCode.OAUTH_STATE_INVALID, "OAuth state is invalid"));
+        OAuthAttempt attempt = requireAttempt(rawCorrelation, returnedState);
         Instant now = clock.instant();
-        if (!attempt.isUsableAt(now)
-                || !constantTimeEquals(attempt.stateHash(), opaqueTokens.hash(returnedState))) {
-            throw AuthException.unauthorized(AuthErrorCode.OAUTH_STATE_INVALID, "OAuth state is invalid");
-        }
         if (providerError != null || code == null || code.isBlank()) {
             throw AuthException.badRequest(AuthErrorCode.OAUTH_PROVIDER_ERROR, "Yandex authorization failed");
         }
@@ -125,7 +136,16 @@ public class YandexOAuthService {
     }
 
     String validateReturnPath(String returnPath) {
-        if (!returnPath.matches("^/(?!/)[A-Za-z0-9/_?&=.%~-]*$")) {
+        if (returnPath.length() > 1000 || !returnPath.matches("^/(?!/)[A-Za-z0-9/_?&=.%~-]*$")) {
+            throw AuthException.badRequest(AuthErrorCode.VALIDATION_ERROR, "OAuth returnPath is invalid");
+        }
+        String path;
+        try {
+            path = URI.create(returnPath).getPath();
+        } catch (IllegalArgumentException invalid) {
+            throw AuthException.badRequest(AuthErrorCode.VALIDATION_ERROR, "OAuth returnPath is invalid");
+        }
+        if (path == null || !path.matches("^/(?!/)[A-Za-z0-9/_~.-]*$") || path.contains("..")) {
             throw AuthException.badRequest(AuthErrorCode.VALIDATION_ERROR, "OAuth returnPath is invalid");
         }
         boolean allowed = properties.oauth().yandex().allowedReturnPathPrefixes().stream()

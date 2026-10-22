@@ -26,6 +26,7 @@
 | Товарики: цены, кошелёк, AI admission, бесплатное право, история и recovery | [BILLING.md](BILLING.md) |
 | Межмодульные зависимости и граница с UI | [DEPS.md](DEPS.md) |
 | Authentication, authorization, cookies, CORS/CSRF, OAuth и защищённые endpoint | [SECURITY.md](SECURITY.md) |
+| Регистрация и вход через Яндекс ID: OAuth, callback, аккаунт, trial и сессия | [YANDEX_OAUTH.md](YANDEX_OAUTH.md) |
 | OpenAI-клиент, модели, конфигурация, secrets и диагностика deployment | [OPENAI.md](OPENAI.md) |
 | Создание и изменение Liquibase-миграций | [MIGRATIONS.md](MIGRATIONS.md) |
 

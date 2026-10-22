@@ -12,6 +12,8 @@ import com.tovarika.api.publicapi.model.RegisterRequestDto;
 import com.tovarika.api.publicapi.model.RegistrationResultDto;
 import com.tovarika.api.publicapi.model.StartOAuthRequestDto;
 import com.tovarika.tech.auth.application.AuthenticationProperties;
+import com.tovarika.tech.auth.application.AuthException;
+import com.tovarika.tech.auth.application.AuthErrorCode;
 import com.tovarika.tech.auth.application.EmailAuthenticationService;
 import com.tovarika.tech.auth.application.EmailNormalizer;
 import com.tovarika.tech.auth.application.OAuthCompletion;
@@ -22,13 +24,13 @@ import com.tovarika.tech.auth.application.YandexOAuthService;
 import com.tovarika.tech.auth.application.port.AuthenticationRateLimiter;
 import com.tovarika.tech.auth.application.port.AuthenticationRateLimiter.Scope;
 import jakarta.validation.Valid;
-import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @RestController
 public class AuthenticationController implements AuthenticationApi {
@@ -168,25 +170,44 @@ public class AuthenticationController implements AuthenticationApi {
             @Nullable String state,
             @Nullable String error,
             @Nullable String errorDescription) {
-        rateLimiter.check(
-                Scope.OAUTH_CALLBACK,
-                requestContext.rateLimitSubject("yandex"),
-                properties.rateLimit().oauthCallback());
-        OAuthCompletion completion = yandexOAuth.complete(
-                requestContext.cookie(cookies.oauthCookieName()),
-                state,
-                code,
-                error,
-                requestContext.cookie(cookies.trialCookieName()),
-                requestContext.metadata());
+        String returnPath = "/editor";
+        try {
+            rateLimiter.check(
+                    Scope.OAUTH_CALLBACK,
+                    requestContext.rateLimitSubject("yandex"),
+                    properties.rateLimit().oauthCallback());
+            String correlation = requestContext.cookie(cookies.oauthCookieName());
+            returnPath = yandexOAuth.returnPathForAttempt(correlation, state);
+            OAuthCompletion completion = yandexOAuth.complete(
+                    correlation, state, code, error,
+                    requestContext.cookie(cookies.trialCookieName()), requestContext.metadata());
+            return callbackResponse(completion.returnPath(), null)
+                    .header(HttpHeaders.SET_COOKIE, cookies.createRefresh(completion.grant().rawRefreshToken()).toString())
+                    .header(HttpHeaders.SET_COOKIE, cookies.clearTrial().toString())
+                    .build();
+        } catch (AuthException failure) {
+            String failureCode = failure.code() == AuthErrorCode.OAUTH_PROVIDER_ERROR && "access_denied".equals(error)
+                    ? "access_denied" : failure.code().name();
+            var response = callbackResponse(returnPath, failureCode);
+            if (failure.code() == AuthErrorCode.TRIAL_SESSION_NOT_FOUND) {
+                response.header(HttpHeaders.SET_COOKIE, cookies.clearTrial().toString());
+            }
+            return response.build();
+        } catch (RuntimeException failure) {
+            // Provider/DB exception messages can contain credentials. Never put them in URLs or logs.
+            return callbackResponse(returnPath, AuthErrorCode.INTERNAL_ERROR.name()).build();
+        }
+    }
+
+    private ResponseEntity.BodyBuilder callbackResponse(String returnPath, @Nullable String error) {
+        var location = UriComponentsBuilder.fromPath("/auth/yandex/callback")
+                .queryParam("return", returnPath);
+        if (error != null) location.queryParam("error", error);
         return ResponseEntity.status(303)
-                .location(URI.create(completion.returnPath()))
-                .header(
-                        HttpHeaders.SET_COOKIE,
-                        cookies.createRefresh(completion.grant().rawRefreshToken()).toString())
-                .header(HttpHeaders.SET_COOKIE, cookies.clearOAuthCorrelation().toString())
-                .header(HttpHeaders.SET_COOKIE, cookies.clearTrial().toString())
-                .build();
+                .location(location.build().encode().toUri())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header("Referrer-Policy", "no-referrer")
+                .header(HttpHeaders.SET_COOKIE, cookies.clearOAuthCorrelation().toString());
     }
 
     @Override

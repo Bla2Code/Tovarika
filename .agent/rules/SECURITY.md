@@ -4,6 +4,9 @@
 сессий, cookies, CORS/CSRF, OAuth, паролей и защищённых endpoint. Он дополняет `RULES.md`; при расхождении
 с API приоритет имеет Authentication Contract.
 
+Текущий backend-поток регистрации и входа через Яндекс описан отдельно в
+[YANDEX_OAUTH.md](YANDEX_OAUTH.md), включая хранение попытки, callback и перенос trial.
+
 ## 1. Источники истины и неизменяемые инварианты
 
 - Security semantics определены в `../tovarika-api-contract/docs/authentication/ai-contract.yaml`, а HTTP API —

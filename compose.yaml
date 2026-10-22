@@ -22,8 +22,7 @@ services:
       REFRESH_COOKIE_NAME: ${REFRESH_COOKIE_NAME:-tovarika_refresh}
       OAUTH_COOKIE_NAME: ${OAUTH_COOKIE_NAME:-tovarika_oauth}
       TRIAL_COOKIE_NAME: ${TRIAL_COOKIE_NAME:-tovarika_trial}
-      YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
-      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
+      SPRING_CONFIG_IMPORT: "configtree:/run/secrets/yandex/"
       YANDEX_REDIRECT_URI: ${YANDEX_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/yandex/callback}
       SMTP_HOST: ${SMTP_HOST:-host.docker.internal}
       SMTP_PORT: ${SMTP_PORT:-1025}
@@ -38,6 +37,10 @@ services:
       OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2.5-sunburst}
     secrets:
       - openai_api_key
+      - source: yandex_client_id
+        target: /run/secrets/yandex/tovarika.security.oauth.yandex.client-id
+      - source: yandex_client_secret
+        target: /run/secrets/yandex/tovarika.security.oauth.yandex.client-secret
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:
@@ -92,3 +95,7 @@ volumes:
 secrets:
   openai_api_key:
     file: ${OPENAI_API_KEY_SOURCE:-../.secrets/openai_api_key}
+  yandex_client_id:
+    file: ${YANDEX_CLIENT_ID_SOURCE:-../.secrets/yandex_client_id}
+  yandex_client_secret:
+    file: ${YANDEX_CLIENT_SECRET_SOURCE:-../.secrets/yandex_client_secret}

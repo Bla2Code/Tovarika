@@ -523,6 +523,136 @@ class AuthenticationContractIntegrationTest {
     }
 
     @Test
+    void oauth_browser_callback_creates_account_and_refresh_session_then_reuses_identity() throws Exception {
+        String returnPath = "/projects/prj_oauth/editor?step=generate&mode=review";
+        OAuthStart start = yandexOAuth.start(returnPath);
+        assertThat(queryParameter(start.authorizationUrl(), "scope")).isEqualTo("login:email login:info");
+        assertThat(queryParameter(start.authorizationUrl(), "code_challenge_method")).isEqualTo("S256");
+        var response = mockMvc.perform(get("/api/v1/auth/oauth/yandex/callback")
+                        .cookie(new Cookie(cookies.oauthCookieName(), start.rawCorrelationToken()))
+                        .param("state", queryParameter(start.authorizationUrl(), "state"))
+                        .param("code", "synthetic-provider-code"))
+                .andExpect(status().isSeeOther())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Referrer-Policy", "no-referrer"))
+                .andReturn().getResponse();
+        var location = UriComponentsBuilder.fromUriString(response.getHeader("Location")).build();
+        assertThat(location.getPath()).isEqualTo("/auth/yandex/callback");
+        assertThat(queryParameter(java.net.URI.create(response.getHeader("Location")), "return")).isEqualTo(returnPath);
+        assertThat(location.getQueryParams()).doesNotContainKeys("code", "state", "error", "error_description");
+        Cookie refresh = response.getCookie(cookies.refreshCookieName());
+        assertThat(refresh).isNotNull();
+        assertThat(refresh.isHttpOnly()).isTrue();
+        assertThat(refresh.getSecure()).isTrue();
+        mockMvc.perform(post("/api/v1/auth/refresh").cookie(refresh).header("Origin", "https://ui.test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+        assertThat(jdbc.queryForObject("select count(*) from registration_onboarding where completed_at is null", Integer.class)).isEqualTo(1);
+        var again = completeOAuth(null);
+        assertThat(again.grant().user().user().email()).isEqualTo("yandex@example.com");
+        assertThat(jdbc.queryForObject("select count(*) from users", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from auth_identities", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void oauth_browser_cancel_preserves_trial_and_project_without_forwarding_provider_details() throws Exception {
+        Cookie trial = newTrialCookie();
+        OAuthStart start = yandexOAuth.start("/projects/prj_oauth/editor?step=generate");
+        var response = mockMvc.perform(get("/api/v1/auth/oauth/yandex/callback")
+                        .cookie(trial, new Cookie(cookies.oauthCookieName(), start.rawCorrelationToken()))
+                        .param("state", queryParameter(start.authorizationUrl(), "state"))
+                        .param("error", "access_denied")
+                        .param("error_description", "untrusted-provider-description"))
+                .andExpect(status().isSeeOther()).andReturn().getResponse();
+        java.net.URI location = java.net.URI.create(response.getHeader("Location"));
+        assertThat(queryParameter(location, "error")).isEqualTo("access_denied");
+        assertThat(queryParameter(location, "return")).isEqualTo("/projects/prj_oauth/editor?step=generate");
+        assertThat(location.toString()).doesNotContain("untrusted-provider-description");
+        assertThat(response.getCookie(cookies.refreshCookieName())).isNull();
+        assertThat(response.getCookie(cookies.trialCookieName())).isNull();
+        assertThat(response.getCookie(cookies.oauthCookieName()).getMaxAge()).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from auth_sessions", Integer.class)).isZero();
+    }
+
+    @Test
+    void oauth_browser_invalid_state_falls_back_and_cannot_masquerade_as_cancellation() throws Exception {
+        OAuthStart start = yandexOAuth.start("/projects/prj_oauth/editor");
+        var response = mockMvc.perform(get("/api/v1/auth/oauth/yandex/callback")
+                        .cookie(new Cookie(cookies.oauthCookieName(), start.rawCorrelationToken()))
+                        .param("state", "wrong-state").param("error", "access_denied"))
+                .andExpect(status().isSeeOther()).andReturn().getResponse();
+        java.net.URI location = java.net.URI.create(response.getHeader("Location"));
+        assertThat(queryParameter(location, "error")).isEqualTo("OAUTH_STATE_INVALID");
+        assertThat(queryParameter(location, "return")).isEqualTo("/editor");
+        assertThat(response.getCookie(cookies.refreshCookieName())).isNull();
+    }
+
+    @Test
+    void oauth_browser_provider_failure_returns_to_project_and_replayed_callback_is_rejected() throws Exception {
+        OAuthStart start = yandexOAuth.start("/projects/prj_oauth/editor");
+        String state = queryParameter(start.authorizationUrl(), "state");
+        yandexClient.rejectPkce = true;
+        var failure = mockMvc.perform(get("/api/v1/auth/oauth/yandex/callback")
+                        .cookie(new Cookie(cookies.oauthCookieName(), start.rawCorrelationToken()))
+                        .param("state", state).param("code", "synthetic-provider-code"))
+                .andExpect(status().isSeeOther()).andReturn().getResponse();
+        assertThat(queryParameter(java.net.URI.create(failure.getHeader("Location")), "error")).isEqualTo("OAUTH_PROVIDER_ERROR");
+        assertThat(queryParameter(java.net.URI.create(failure.getHeader("Location")), "return")).isEqualTo("/projects/prj_oauth/editor");
+        yandexClient.rejectPkce = false;
+        yandexOAuth.complete(start.rawCorrelationToken(), state, "synthetic-provider-code", null, null, METADATA);
+        var replay = mockMvc.perform(get("/api/v1/auth/oauth/yandex/callback")
+                        .cookie(new Cookie(cookies.oauthCookieName(), start.rawCorrelationToken()))
+                        .param("state", state).param("code", "synthetic-provider-code"))
+                .andExpect(status().isSeeOther()).andReturn().getResponse();
+        assertThat(queryParameter(java.net.URI.create(replay.getHeader("Location")), "error")).isEqualTo("OAUTH_STATE_INVALID");
+        assertThat(replay.getCookie(cookies.refreshCookieName())).isNull();
+    }
+
+    @Test
+    void oauth_browser_expired_attempt_and_missing_cookie_require_a_fresh_start() throws Exception {
+        OAuthStart start = yandexOAuth.start("/projects/prj_oauth/editor");
+        jdbc.update("update oauth_attempts set created_at=?, expires_at=?",
+                Timestamp.from(Instant.now().minusSeconds(600)), Timestamp.from(Instant.now().minusSeconds(60)));
+        for (boolean withCookie : List.of(true, false)) {
+            var request = get("/api/v1/auth/oauth/yandex/callback")
+                    .param("state", queryParameter(start.authorizationUrl(), "state"))
+                    .param("code", "synthetic-provider-code");
+            if (withCookie) request.cookie(new Cookie(cookies.oauthCookieName(), start.rawCorrelationToken()));
+            var response = mockMvc.perform(request).andExpect(status().isSeeOther()).andReturn().getResponse();
+            java.net.URI location = java.net.URI.create(response.getHeader("Location"));
+            assertThat(queryParameter(location, "error")).isEqualTo("OAUTH_STATE_INVALID");
+            assertThat(queryParameter(location, "return")).isEqualTo("/editor");
+            assertThat(response.getCookie(cookies.refreshCookieName())).isNull();
+        }
+        assertThat(jdbc.queryForObject("select count(*) from auth_sessions", Integer.class)).isZero();
+    }
+
+    @Test
+    void oauth_browser_invalid_trial_is_cleared_to_allow_a_fresh_login() throws Exception {
+        OAuthStart start = yandexOAuth.start("/editor");
+        var response = mockMvc.perform(get("/api/v1/auth/oauth/yandex/callback")
+                        .cookie(new Cookie(cookies.oauthCookieName(), start.rawCorrelationToken()),
+                                new Cookie(cookies.trialCookieName(), "synthetic-expired-trial"))
+                        .param("state", queryParameter(start.authorizationUrl(), "state"))
+                        .param("code", "synthetic-provider-code"))
+                .andExpect(status().isSeeOther()).andReturn().getResponse();
+        assertThat(queryParameter(java.net.URI.create(response.getHeader("Location")), "error")).isEqualTo("TRIAL_SESSION_NOT_FOUND");
+        assertThat(response.getCookie(cookies.trialCookieName()).getMaxAge()).isZero();
+        assertThat(response.getCookie(cookies.refreshCookieName())).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from users", Integer.class)).isZero();
+        assertThat(completeOAuth(null).grant().user().user().email()).isEqualTo("yandex@example.com");
+    }
+
+    @Test
+    void oauth_email_match_does_not_take_over_an_email_account() {
+        var existing = emailAuthentication.register("yandex@example.com", PASSWORD, null, null);
+        var completion = completeOAuth(null);
+        assertThat(completion.grant().user().user().id()).isNotEqualTo(existing.user().id());
+        assertThat(store.findProviders(existing.user().id())).containsExactly(com.tovarika.tech.auth.domain.AuthProvider.EMAIL);
+        assertThat(completion.grant().user().providers()).containsExactly(com.tovarika.tech.auth.domain.AuthProvider.YANDEX);
+    }
+
+    @Test
     void oauth_state_mismatch_rejected() {
         OAuthStart start = yandexOAuth.start("/editor");
 
@@ -555,6 +685,9 @@ class AuthenticationContractIntegrationTest {
                         assertThat(error.code()).isEqualTo(AuthErrorCode.VALIDATION_ERROR));
         assertThatThrownBy(() -> yandexOAuth.start("//evil.test"))
                 .isInstanceOf(AuthException.class);
+        for (String path : List.of("/editor/../auth", "/editor/%2e%2e/auth", "/editor/%252e%252e/auth", "/editor/%5coutside", "/editor/%00", "/editor/%")) {
+            assertThatThrownBy(() -> yandexOAuth.start(path)).isInstanceOf(AuthException.class);
+        }
     }
 
     @Test
@@ -1187,7 +1320,8 @@ class AuthenticationContractIntegrationTest {
     }
 
     private String queryParameter(java.net.URI uri, String name) {
-        return UriComponentsBuilder.fromUri(uri).build().getQueryParams().getFirst(name);
+        String value = UriComponentsBuilder.fromUri(uri).build().getQueryParams().getFirst(name);
+        return value == null ? null : org.springframework.web.util.UriUtils.decode(value, StandardCharsets.UTF_8);
     }
 
     private SecretKey signingKey() {

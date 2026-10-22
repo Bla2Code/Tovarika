@@ -19,9 +19,8 @@ services:
       UI_ALLOWED_ORIGINS: ${UI_ALLOWED_ORIGINS:-https://tovarika.com}
       AUTH_COOKIE_SECURE: "true"
       ASSET_PUBLIC_BASE_URL: ${ASSET_PUBLIC_BASE_URL:-https://tovarika.com}
-      YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
-      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
-      YANDEX_REDIRECT_URI: ${YANDEX_REDIRECT_URI:-https://api.tovarika.com/api/v1/auth/oauth/yandex/callback}
+      SPRING_CONFIG_IMPORT: "configtree:/run/secrets/yandex/"
+      YANDEX_REDIRECT_URI: ${YANDEX_REDIRECT_URI:-https://tovarika.com/api/v1/auth/oauth/yandex/callback}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
@@ -38,6 +37,10 @@ services:
       OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2.5-sunburst}
     secrets:
       - openai_api_key
+      - source: yandex_client_id
+        target: /run/secrets/yandex/tovarika.security.oauth.yandex.client-id
+      - source: yandex_client_secret
+        target: /run/secrets/yandex/tovarika.security.oauth.yandex.client-secret
     expose:
       - "8080"
     networks:
@@ -116,3 +119,7 @@ volumes:
 secrets:
   openai_api_key:
     file: ./secrets/openai_api_key
+  yandex_client_id:
+    file: ${YANDEX_CLIENT_ID_SOURCE:-./secrets/yandex_client_id}
+  yandex_client_secret:
+    file: ${YANDEX_CLIENT_SECRET_SOURCE:-./secrets/yandex_client_secret}
