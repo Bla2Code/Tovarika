@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "scene": "Warm peach studio backdrop with softly blurred shapes and ample negative space",
+  "composition": "Large diagonal product across the lower frame, top-left headline and subtitle, translucent feature panels with circular icons around the product",
+  "lighting": "Soft warm studio light with gentle highlights and a floating oval shadow beneath the product",
+  "style": "Cozy minimalist product poster; dark bold heading, thin supporting type, translucent cream panels and fine line icons",
+  "palette": [
+    "#D9A97F",
+    "#F4E7D7",
+    "#EACDB0",
+    "#3B302C"
+  ],
+  "avoid": [
+    "verbatim reference text or reference branding",
+    "invented specifications, prices or color variants",
+    "unrelated products or unsupported product views",
+    "changes to source product identity, colors or branding",
+    "unsupported quality, comfort or durability claims"
+  ]
+}

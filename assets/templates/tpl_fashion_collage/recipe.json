@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "scene": "Coffee-brown backdrop fading to black below, with a crisp white rectangular tile grid and a subtle warm glow",
+  "composition": "Large source product overlaps a white tile grid; factual copy at top and bottom; oversized cream title below; use visible crops only",
+  "lighting": "Soft studio light with gentle shadows; preserve source surface details and true product colors",
+  "style": "Editorial collage with bold rounded cream headline, spaced uppercase subtitle and compact white supporting copy",
+  "palette": [
+    "#785740",
+    "#CBB195",
+    "#FFFFFF",
+    "#100B08"
+  ],
+  "avoid": [
+    "verbatim reference overlay text, reference brand or social handles",
+    "invented claims, specifications, prices or color variants",
+    "unrelated products, invented product angles or extra set pieces",
+    "changes to source product identity, geometry, colors or branding",
+    "fabricated texture, hidden construction or illegible label reconstruction"
+  ]
+}

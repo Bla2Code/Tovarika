@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "scene": "Pale gray studio backdrop with a rounded charcoal inset for a visible product detail",
+  "composition": "Oversized dark headline at top; source product large across center and right; short facts at left and a small detail inset below",
+  "lighting": "Soft even studio light with gentle floor shadows and natural surface highlights",
+  "style": "Clean fashion editorial with bold uppercase headings, compact fact labels and a rounded detail panel",
+  "palette": [
+    "#ECEDED",
+    "#282923",
+    "#66646B",
+    "#D1CED4"
+  ],
+  "avoid": [
+    "verbatim reference text, dates, brand or demonstration product claims",
+    "invented specifications, materials, sizes, prices or color variants",
+    "unrelated products, unsupported angles or hidden product details",
+    "changes to source product identity, geometry, colors or branding",
+    "models or body parts absent from the source photo",
+    "carousel dots, zoom controls or other interface elements"
+  ]
+}

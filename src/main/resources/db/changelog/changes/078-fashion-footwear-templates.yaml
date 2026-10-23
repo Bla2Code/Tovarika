@@ -1,0 +1,159 @@
+databaseChangeLog:
+  - changeSet:
+      id: 078-fashion-footwear-templates
+      author: codex
+      runInTransaction: true
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              -- Reference WebPs are synchronized by backend deployment before Liquibase starts.
+
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_soft_ref', 'template_reference', 'image/webp', 18658, 384, 512,
+                  'templates/tpl_fashion_soft/623c0b3f-7ed0-5699-b2fb-763811f5ebb5.webp', '', NULL, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO templates (
+                  id, name, category_id, sort_order, available,
+                  reference_asset_id, recipe_json, created_at, updated_at
+              ) VALUES (
+                  'tpl_fashion_soft', 'Тёплый уют', 'cat_fashion', 60, true,
+                  'asset_tpl_fashion_soft_ref',
+                  '{
+                    "schemaVersion": 1,
+                    "scene": "Warm peach studio backdrop with softly blurred shapes and ample negative space",
+                    "composition": "Large diagonal product across the lower frame, top-left headline and subtitle, translucent feature panels with circular icons around the product",
+                    "lighting": "Soft warm studio light with gentle highlights and a floating oval shadow beneath the product",
+                    "style": "Cozy minimalist product poster; dark bold heading, thin supporting type, translucent cream panels and fine line icons",
+                    "palette": [
+                      "#D9A97F",
+                      "#F4E7D7",
+                      "#EACDB0",
+                      "#3B302C"
+                    ],
+                    "avoid": [
+                      "verbatim reference text or reference branding",
+                      "invented specifications, prices or color variants",
+                      "unrelated products or unsupported product views",
+                      "changes to source product identity, colors or branding",
+                      "unsupported quality, comfort or durability claims"
+                    ]
+                  }'::jsonb,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_collage_ref', 'template_reference', 'image/webp', 22168, 400, 500,
+                  'templates/tpl_fashion_collage/71d4c8b0-09bf-4c74-b04e-e74d4499e5ea.webp', '', NULL, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO templates (
+                  id, name, category_id, sort_order, available,
+                  reference_asset_id, recipe_json, created_at, updated_at
+              ) VALUES (
+                  'tpl_fashion_collage', 'Кофейный коллаж', 'cat_fashion', 70, true,
+                  'asset_tpl_fashion_collage_ref',
+                  '{
+                    "schemaVersion": 1,
+                    "scene": "Coffee-brown backdrop fading to black below, with a crisp white rectangular tile grid and a subtle warm glow",
+                    "composition": "Large source product overlaps a white tile grid; factual copy at top and bottom; oversized cream title below; use visible crops only",
+                    "lighting": "Soft studio light with gentle shadows; preserve source surface details and true product colors",
+                    "style": "Editorial collage with bold rounded cream headline, spaced uppercase subtitle and compact white supporting copy",
+                    "palette": [
+                      "#785740",
+                      "#CBB195",
+                      "#FFFFFF",
+                      "#100B08"
+                    ],
+                    "avoid": [
+                      "verbatim reference overlay text, reference brand or social handles",
+                      "invented claims, specifications, prices or color variants",
+                      "unrelated products, invented product angles or extra set pieces",
+                      "changes to source product identity, geometry, colors or branding",
+                      "fabricated texture, hidden construction or illegible label reconstruction"
+                    ]
+                  }'::jsonb,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_summer_ref', 'template_reference', 'image/webp', 22516, 384, 512,
+                  'templates/tpl_fashion_summer/e57a8c89-f20e-5842-80ff-251396ea6062.webp', '', NULL, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO templates (
+                  id, name, category_id, sort_order, available,
+                  reference_asset_id, recipe_json, created_at, updated_at
+              ) VALUES (
+                  'tpl_fashion_summer', 'Летний минимализм', 'cat_fashion', 80, true,
+                  'asset_tpl_fashion_summer_ref',
+                  '{
+                    "schemaVersion": 1,
+                    "scene": "Warm taupe background with a darker rounded rectangle in the upper half and a small sun outline.",
+                    "composition": "Large product above; bold white title below left, cream subtitle and short checked facts, optional confirmed size block below right.",
+                    "lighting": "Soft warm studio light with gentle shadows and a subtle grain finish.",
+                    "style": "Minimal summer editorial with oversized sans-serif typography, cream square check badges and spacious alignment.",
+                    "palette": [
+                      "#75614F",
+                      "#4D3B2B",
+                      "#F8F5EF",
+                      "#FFE2AF"
+                    ],
+                    "avoid": [
+                      "Copying reference overlay text or brand",
+                      "Invented claims, prices, sizes or product variants",
+                      "Extra products or unseen product parts",
+                      "Changing source product geometry, color or branding",
+                      "Adding a person when absent from the source photo"
+                    ]
+                  }'::jsonb,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO assets (
+                  id, purpose, media_type, size_bytes, width, height,
+                  storage_key, url, expires_at, created_at
+              ) VALUES (
+                  'asset_tpl_fashion_winter_ref', 'template_reference', 'image/webp', 20710, 384, 512,
+                  'templates/tpl_fashion_winter/91507601-407d-4b1b-bd6f-4b4184049551.webp', '', NULL, CURRENT_TIMESTAMP
+              );
+
+              INSERT INTO templates (
+                  id, name, category_id, sort_order, available,
+                  reference_asset_id, recipe_json, created_at, updated_at
+              ) VALUES (
+                  'tpl_fashion_winter', 'Зимний акцент', 'cat_fashion', 90, true,
+                  'asset_tpl_fashion_winter_ref',
+                  '{
+                    "schemaVersion": 1,
+                    "scene": "Pale gray studio backdrop with a rounded charcoal inset for a visible product detail",
+                    "composition": "Oversized dark headline at top; source product large across center and right; short facts at left and a small detail inset below",
+                    "lighting": "Soft even studio light with gentle floor shadows and natural surface highlights",
+                    "style": "Clean fashion editorial with bold uppercase headings, compact fact labels and a rounded detail panel",
+                    "palette": [
+                      "#ECEDED",
+                      "#282923",
+                      "#66646B",
+                      "#D1CED4"
+                    ],
+                    "avoid": [
+                      "verbatim reference text, dates, brand or demonstration product claims",
+                      "invented specifications, materials, sizes, prices or color variants",
+                      "unrelated products, unsupported angles or hidden product details",
+                      "changes to source product identity, geometry, colors or branding",
+                      "models or body parts absent from the source photo",
+                      "carousel dots, zoom controls or other interface elements"
+                    ]
+                  }'::jsonb,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+              );

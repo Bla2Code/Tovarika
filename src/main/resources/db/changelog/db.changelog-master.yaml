@@ -155,3 +155,9 @@ databaseChangeLog:
       file: db/changelog/changes/076-sport-outdoor-template.yaml
   - include:
       file: db/changelog/changes/077-sport-outdoor-variants.yaml
+  - include:
+      file: db/changelog/changes/078-fashion-footwear-templates.yaml
+  - include:
+      file: db/changelog/changes/079-fashion-footwear-variants.yaml
+  - include:
+      file: db/changelog/changes/080-credit-packages.yaml

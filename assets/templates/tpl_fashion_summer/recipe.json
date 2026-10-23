@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "scene": "Warm taupe background with a darker rounded rectangle in the upper half and a small sun outline.",
+  "composition": "Large product above; bold white title below left, cream subtitle and short checked facts, optional confirmed size block below right.",
+  "lighting": "Soft warm studio light with gentle shadows and a subtle grain finish.",
+  "style": "Minimal summer editorial with oversized sans-serif typography, cream square check badges and spacious alignment.",
+  "palette": [
+    "#75614F",
+    "#4D3B2B",
+    "#F8F5EF",
+    "#FFE2AF"
+  ],
+  "avoid": [
+    "Copying reference overlay text or brand",
+    "Invented claims, prices, sizes or product variants",
+    "Extra products or unseen product parts",
+    "Changing source product geometry, color or branding",
+    "Adding a person when absent from the source photo"
+  ]
+}
