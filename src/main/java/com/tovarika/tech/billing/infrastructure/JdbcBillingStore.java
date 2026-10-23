@@ -58,7 +58,7 @@ public class JdbcBillingStore implements BillingStore {
                 select w.id from billing_wallets w join billing_wallet_links l on l.wallet_id=w.id
                 where l.canonical_wallet_id=? order by w.id for update of w
                 """, root);
-        return jdbc.queryForObject("select * from billing_wallets where id=?", (r,n) -> wallet(r), root);
+        return expireLots(readWallet(root), now());
     }
     public Instant now() { return jdbc.queryForObject("select clock_timestamp()", Timestamp.class).toInstant(); }
     public Catalog catalog() {
@@ -151,6 +151,7 @@ public class JdbcBillingStore implements BillingStore {
         if (funding == Funding.wallet) {
             jdbc.update("insert into billing_reservations(operation_id,wallet_id,amount_units,state) values(?,?,?,'reserved')",
                     id, wallet.id(), amount);
+            reserveLots(wallet.id(), id, amount);
             jdbc.update("update billing_wallets set reserved_units=reserved_units+?,updated_at=greatest(updated_at,clock_timestamp()) where id=?",
                     amount, wallet.id());
         } else if (funding == Funding.free_entitlement) {
@@ -180,6 +181,7 @@ public class JdbcBillingStore implements BillingStore {
                     outcome == Outcome.captured ? snapshot.operationId() : null, operation.subject());
         } else if (snapshot.funding() == Funding.wallet) {
             long amount = snapshot.amountUnits();
+            finishLots(snapshot.operationId(), outcome == Outcome.captured);
             if (outcome == Outcome.captured) {
                 long total = Billing.units(wallet.totalUnits() - amount);
                 long used = Billing.add(wallet.usedUnits(), amount);
@@ -194,6 +196,7 @@ public class JdbcBillingStore implements BillingStore {
             jdbc.update("update billing_reservations set state=? where operation_id=?", outcome.name(), snapshot.operationId());
         }
         jdbc.update("update billing_operations set state=?,finished_at=clock_timestamp() where id=?", outcome.name(), snapshot.operationId());
+        expireLots(readWallet(wallet.id()), now());
         return true;
     }
     public String trialGrant(Wallet wallet, String originalIdentity, long amount) {
@@ -217,6 +220,7 @@ public class JdbcBillingStore implements BillingStore {
         if (!accountGrant.isEmpty()) return (String)accountGrant.getFirst().get("posting_id");
         String postingId = amount == 0 ? null : post(wallet, "trial_grant", amount, Billing.add(wallet.totalUnits(), amount), reference, null, null, null);
         jdbc.update("insert into billing_trial_grants(reference,wallet_id,amount_units,posting_id) values(?,?,?,?)", reference, wallet.id(), amount, postingId);
+        if (amount > 0) createLot(wallet.id(), reference, amount, now(), null);
         return postingId;
     }
     public String compensate(Wallet wallet, String debitId, String reference, long amount) {
@@ -243,7 +247,89 @@ public class JdbcBillingStore implements BillingStore {
         if (amount > debit - compensated) throw BillingFailure.validation();
         long total = Billing.add(wallet.totalUnits(), amount);
         jdbc.update("update billing_wallets set used_units=used_units-? where id=?", amount, wallet.id());
-        return post(wallet, "compensation", amount, total, uniqueReference, null, null, debitId);
+        String postingId = post(wallet, "compensation", amount, total, uniqueReference, null, null, debitId);
+        refundLots(wallet.id(), debitId, uniqueReference, amount);
+        expireLots(readWallet(wallet.id()), now());
+        return postingId;
+    }
+    private Wallet readWallet(String id) {
+        return jdbc.queryForObject("select * from billing_wallets where id=?", (r,n) -> wallet(r), id);
+    }
+    private void createLot(String walletId,String reference,long amount,Instant createdAt,Instant expiresAt) {
+        jdbc.update("""
+                insert into billing_credit_lots(id,wallet_id,reference,original_units,remaining_units,created_at,expires_at)
+                values(?,?,?,?,?,?,?)
+                """,Billing.id("lot_"),walletId,reference,amount,amount,Timestamp.from(createdAt),
+                expiresAt==null?null:Timestamp.from(expiresAt));
+    }
+    /** Caller holds the canonical wallet guard. Each paid grant is tied to one purchase. */
+    public void grantPackage(Wallet wallet,String purchaseId,long amount,Instant paidAt,Instant expiresAt) {
+        transaction();
+        if (amount<=0 || !expiresAt.isAfter(paidAt)) throw BillingFailure.validation();
+        String reference="purchase:"+purchaseId;
+        if(posting(reference).isPresent()) return;
+        post(wallet,"package_purchase",amount,Billing.add(wallet.totalUnits(),amount),reference,null,null,null);
+        createLot(wallet.id(),reference,amount,paidAt,expiresAt);
+    }
+    private Wallet expireLots(Wallet wallet,Instant cutoff) {
+        var expired=jdbc.queryForList("""
+                select c.* from billing_credit_lots c join billing_wallet_links l on l.wallet_id=c.wallet_id
+                where l.canonical_wallet_id=? and c.expires_at<=? and c.remaining_units>c.reserved_units
+                order by c.expires_at,c.id
+                """,wallet.id(),Timestamp.from(cutoff));
+        for(var lot:expired) {
+            long amount=((Number)lot.get("remaining_units")).longValue()-((Number)lot.get("reserved_units")).longValue();
+            jdbc.update("update billing_credit_lots set remaining_units=remaining_units-? where id=?",amount,lot.get("id"));
+            post(wallet,"credit_expiry",amount,Billing.units(wallet.totalUnits()-amount),
+                    "expiry:"+Billing.id("exp_"),null,null,null);
+            wallet=readWallet(wallet.id());
+        }
+        return wallet;
+    }
+    private void reserveLots(String walletId,String operationId,long amount) {
+        var lots=jdbc.queryForList("""
+                select c.* from billing_credit_lots c join billing_wallet_links l on l.wallet_id=c.wallet_id
+                where l.canonical_wallet_id=? and c.remaining_units>c.reserved_units
+                order by c.expires_at asc nulls last,c.created_at,c.id
+                """,walletId);
+        long remaining=amount;
+        for(var lot:lots) {
+            long take=Math.min(remaining,((Number)lot.get("remaining_units")).longValue()-((Number)lot.get("reserved_units")).longValue());
+            if(take==0) continue;
+            jdbc.update("update billing_credit_lots set reserved_units=reserved_units+? where id=?",take,lot.get("id"));
+            jdbc.update("insert into billing_lot_allocations(operation_id,lot_id,amount_units) values(?,?,?)",operationId,lot.get("id"),take);
+            remaining-=take;
+            if(remaining==0) break;
+        }
+        if(remaining!=0) throw new IllegalStateException("Wallet lot balance invariant failed");
+    }
+    private void finishLots(String operationId,boolean capture) {
+        var allocations=jdbc.queryForList("select * from billing_lot_allocations where operation_id=?",operationId);
+        for(var allocation:allocations) {
+            long amount=((Number)allocation.get("amount_units")).longValue();
+            jdbc.update("update billing_credit_lots set reserved_units=reserved_units-?,remaining_units=remaining_units-? where id=?",
+                    amount,capture?amount:0,allocation.get("lot_id"));
+        }
+    }
+    private void refundLots(String walletId,String debitId,String reference,long amount) {
+        var allocations=jdbc.queryForList("""
+                select a.* from billing_lot_allocations a join billing_ledger d on d.operation_id=a.operation_id
+                join billing_credit_lots c on c.id=a.lot_id where d.id=?
+                order by c.expires_at asc nulls last,c.created_at,c.id
+                """,debitId);
+        // Debits that completed before the lot migration keep their original non-expiring semantics.
+        if(allocations.isEmpty()) { createLot(walletId,reference,amount,now(),null); return; }
+        long remaining=amount;
+        for(var allocation:allocations) {
+            long take=Math.min(remaining,((Number)allocation.get("amount_units")).longValue()-((Number)allocation.get("refunded_units")).longValue());
+            if(take==0) continue;
+            jdbc.update("update billing_credit_lots set remaining_units=remaining_units+? where id=?",take,allocation.get("lot_id"));
+            jdbc.update("update billing_lot_allocations set refunded_units=refunded_units+? where operation_id=? and lot_id=?",
+                    take,allocation.get("operation_id"),allocation.get("lot_id"));
+            remaining-=take;
+            if(remaining==0) break;
+        }
+        if(remaining!=0) throw new IllegalStateException("Refund lot allocation invariant failed");
     }
     private Optional<Map<String, Object>> posting(String reference) {
         return jdbc.queryForList("select * from billing_ledger where reference=?", reference).stream().findFirst();
@@ -317,7 +403,7 @@ public class JdbcBillingStore implements BillingStore {
         String order = q.sort().equals("newest") ? "desc" : "asc";
         String comparator = q.sort().equals("newest") ? "<" : ">";
         var args = new ArrayList<Object>(List.of(wallet.id(), upper));
-        String sql = "select d.*, h.sequence as history_sequence from billing_ledger d join billing_ledger_order h on h.posting_id=d.id where h.wallet_id=? and kind in ('trial_grant','ai_debit','free_operation') and h.sequence<=?";
+        String sql = "select d.*, h.sequence as history_sequence from billing_ledger d join billing_ledger_order h on h.posting_id=d.id where h.wallet_id=? and kind in ('trial_grant','ai_debit','free_operation','package_purchase','credit_expiry') and h.sequence<=?";
         if(lastTime!=null) { sql+=" and (d.occurred_at,h.sequence)"+comparator+"(?,?)";args.add(lastTime);args.add(last); }
         try {
             if (q.from() != null) { sql += " and occurred_at>=?"; args.add(Timestamp.from(q.from().atStartOfDay(HISTORY_ZONE).toInstant())); }

@@ -401,4 +401,153 @@ class BillingCorePostgresTest {
         assertThat(read(owner).reservedUnits()).isZero();assertThat(read(owner).usedUnits()).isEqualTo(expected);
     }
 
+
+    private com.tovarika.tech.billing.payments.CreditPurchases purchases(Owner owner) {
+        var settings=new com.tovarika.tech.billing.payments.RobokassaSettings(com.tovarika.tech.billing.payments.RobokassaMode.TEST,"synthetic-shop",
+                "synthetic-test-one","synthetic-test-two",List.of(owner.id()));
+        return new com.tovarika.tech.billing.payments.CreditPurchases(jdbc,store,
+                new com.tovarika.tech.billing.payments.RobokassaGateway(settings),settings);
+    }
+    private void grantPackage(Owner owner,String reference,long amount,Instant expiresAt) {
+        tx(()->{store.grantPackage(store.lockWallet(owner),reference,amount,Instant.now().minusSeconds(3600),expiresAt);return null;});
+    }
+    private void expirePackage(String reference) {
+        jdbc.update("update billing_credit_lots set created_at=clock_timestamp()-interval '2 months',expires_at=clock_timestamp()-interval '1 second' where reference=?","purchase:"+reference);
+    }
+    @Test void packageTariffsSnapshotIdempotencyAndDuplicateNotification() throws Exception {
+        var owner=owner();var purchases=purchases(owner);
+        assertThat(purchases.catalog(owner.id()).items()).extracting(p->p.priceKopecks()).containsExactly(99000L,249000L,649000L);
+        assertThat(purchases.catalog(owner.id()).items()).extracting(p->p.creditUnits()).containsExactly(14000L,40000L,120000L);
+        var ids=ConcurrentHashMap.<String>newKeySet();
+        race(8,i->{ids.add(tx(()->purchases.create(owner.id(),"credits_140_month","same-purchase-key")).purchase().id());return true;});
+        assertThat(ids).hasSize(1);
+        String id=ids.iterator().next();
+        assertThatThrownBy(()->tx(()->purchases.create(owner.id(),"credits_400_month","same-purchase-key"))).isInstanceOf(BillingFailure.class);
+        long invoice=jdbc.queryForObject("select invoice_id from billing_credit_purchases where id=?",Long.class,id);
+        var notification=new com.tovarika.tech.billing.payments.RobokassaGateway.Notification(id,invoice,99000);
+        assertThatThrownBy(()->tx(()->purchases.accept(new com.tovarika.tech.billing.payments.RobokassaGateway.Notification(id,invoice,1))))
+                .isInstanceOf(BillingFailure.class);
+        assertThat(read(owner).totalUnits()).isZero();
+        race(10,i->{assertThat(tx(()->purchases.accept(notification))).isEqualTo("OK"+invoice);return true;});
+        assertThat(read(owner).totalUnits()).isEqualTo(14000);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where reference=?",Long.class,"purchase:"+id)).isEqualTo(1);
+        var paid=purchases.get(owner.id(),id);
+        assertThat(paid.status()).isEqualTo("succeeded");
+        assertThat(paid.expiresAt()).isEqualTo(com.tovarika.tech.billing.payments.PackageLifetime.expiresAt(paid.paidAt()));
+        assertThatThrownBy(()->purchases.get("other-user",id)).isInstanceOf(BillingFailure.class);
+        assertThat(tx(()->purchases.lots(owner.id())).items()).hasSize(1);
+    }
+    @Test void expirationIsIdempotentDoesNotIncreaseUsedAndLeavesTrialUntouched() {
+        var owner=owner();fund(owner,600);
+        String reference=Billing.id("pay_");grantPackage(owner,reference,14000,Instant.now().plusSeconds(3600));
+        expirePackage(reference);
+        assertThat(read(owner).availableUnits()).isEqualTo(600);
+        assertThat(read(owner).usedUnits()).isZero();
+        assertThat(read(owner).totalUnits()).isEqualTo(600);
+        var history=tx(()->service.history(owner,new HistoryQuery(null,null,"newest",100,null)));
+        assertThat(history.items()).extracting(Entry::kind).containsExactly("credit_expiry","package_purchase","trial_grant");
+        assertThat(history.items().getFirst().amountUnits()).isEqualTo(14000);
+    }
+    @Test void firstExpiringPackageIsSpentAndSecondPurchaseDoesNotExtendIt() {
+        var owner=owner();fund(owner,600);
+        String first=Billing.id("pay_"),second=Billing.id("pay_");
+        grantPackage(owner,first,300,Instant.now().plusSeconds(3600));
+        grantPackage(owner,second,500,Instant.now().plusSeconds(7200));
+        var operation=admit(owner,command(Code.image_generation,null));
+        tx(()->service.finish(operation.snapshot().operationId(),0,Outcome.captured));
+        assertThat(jdbc.queryForObject("select remaining_units from billing_credit_lots where reference=?",Long.class,"purchase:"+first)).isZero();
+        assertThat(jdbc.queryForObject("select remaining_units from billing_credit_lots where reference=?",Long.class,"purchase:"+second)).isEqualTo(400);
+        expirePackage(first);assertThat(read(owner).totalUnits()).isEqualTo(1000);
+        expirePackage(second);assertThat(read(owner).totalUnits()).isEqualTo(600);
+    }
+    @Test void captureAfterExpirySpendsOnlyReservedUnitsAndReleaseAfterExpiryCannotReviveThem() {
+        for(var outcome:List.of(Outcome.captured,Outcome.released)) {
+            var owner=owner();String reference=Billing.id("pay_");
+            grantPackage(owner,reference,14000,Instant.now().plusSeconds(3600));
+            var operation=admit(owner,command(Code.image_generation,null));expirePackage(reference);
+            assertThat(read(owner).totalUnits()).isEqualTo(400);
+            assertThat(read(owner).availableUnits()).isZero();
+            assertThatThrownBy(()->admit(owner,command(Code.image_generation,null))).isInstanceOf(BillingFailure.class);
+            tx(()->service.finish(operation.snapshot().operationId(),0,outcome));
+            assertThat(read(owner).totalUnits()).isZero();
+            assertThat(read(owner).reservedUnits()).isZero();
+            assertThat(read(owner).usedUnits()).isEqualTo(outcome==Outcome.captured?400:0);
+            tx(()->service.finish(operation.snapshot().operationId(),0,outcome));
+            assertThat(read(owner).totalUnits()).isZero();
+        }
+    }
+    @Test void compensationPreservesOriginalLotExpiry() {
+        var owner=owner();String reference=Billing.id("pay_");
+        grantPackage(owner,reference,14000,Instant.now().plusSeconds(3600));
+        var operation=admit(owner,command(Code.image_generation,null));
+        tx(()->service.finish(operation.snapshot().operationId(),0,Outcome.captured));
+        expirePackage(reference);assertThat(read(owner).totalUnits()).isZero();
+        tx(()->service.compensate(operation.walletId(),debit(operation),"first-refund",200));
+        assertThat(read(owner).totalUnits()).isZero();assertThat(read(owner).usedUnits()).isEqualTo(200);
+        tx(()->service.compensate(operation.walletId(),debit(operation),"second-refund",200));
+        assertThat(read(owner).totalUnits()).isZero();assertThat(read(owner).usedUnits()).isZero();
+    }
+    @Test void mergingWalletsRetainsLotAllocationsAndExpiry() {
+        var trial=new Owner("trial",Billing.id("trial_"));var user=owner();fund(trial,600);fund(user,600);
+        String reference=Billing.id("pay_");grantPackage(trial,reference,1000,Instant.now().plusSeconds(3600));
+        var operation=admit(trial,command(Code.image_generation,null));
+        tx(()->{service.convertOwner(trial,user);return null;});expirePackage(reference);
+        assertThat(read(user).availableUnits()).isEqualTo(1200);
+        tx(()->service.finish(operation.snapshot().operationId(),0,Outcome.released));
+        assertThat(read(user).totalUnits()).isEqualTo(1200);
+        assertThat(read(trial).totalUnits()).isEqualTo(1200);
+    }
+
+    @Test void scheduledExpirationWorksWithoutUserVisitsAndIsIdempotent() {
+        var owner=owner();String reference=Billing.id("pay_");
+        grantPackage(owner,reference,14000,Instant.now().plusSeconds(3600));expirePackage(reference);
+        String walletId=jdbc.queryForObject("select wallet_id from billing_credit_lots where reference=?",String.class,"purchase:"+reference);
+        var scheduler=new com.tovarika.tech.billing.payments.CreditExpiryScheduler(jdbc,store,transactions.getTransactionManager());
+        scheduler.expire();scheduler.expire();
+        assertThat(jdbc.queryForObject("select total_units from billing_wallets where id=?",Long.class,walletId)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where wallet_id=? and kind='credit_expiry'",Long.class,walletId)).isEqualTo(1);
+    }
+
+    @Test void upgradeBackfillsExistingBalanceAndActiveReservationWithoutChangingMoney() throws Exception {
+        String schema="legacy_"+UUID.randomUUID().toString().replace("-","");
+        jdbc.execute("create schema "+schema);
+        String url=POSTGRES.getJdbcUrl()+(POSTGRES.getJdbcUrl().contains("?")?"&":"?")+"currentSchema="+schema;
+        var legacyDataSource=new DriverManagerDataSource(url,POSTGRES.getUsername(),POSTGRES.getPassword());
+        var legacyJdbc=new JdbcTemplate(legacyDataSource);
+        try(var connection=legacyDataSource.getConnection()) {
+            var db=DatabaseFactory.getInstance().findCorrectDatabaseImplementation(new JdbcConnection(connection));
+            db.setDefaultSchemaName(schema);db.setLiquibaseSchemaName(schema);
+            try(var migration=new Liquibase("db/changelog/db.changelog-master.yaml",new ClassLoaderResourceAccessor(),db)) {
+                var pending=migration.listUnrunChangeSets(new Contexts(),new LabelExpression());
+                assertThat(pending.getLast().getId()).isEqualTo("080-credit-packages");
+                migration.update(pending.size()-1,new Contexts(),new LabelExpression());
+                legacyJdbc.update("insert into billing_accounts(id) values('bac_legacy')");
+                legacyJdbc.update("insert into billing_wallets(id,account_id,total_units,reserved_units) values('wal_legacy','bac_legacy',600,400)");
+                legacyJdbc.update("insert into billing_wallet_links values('wal_legacy','wal_legacy')");
+                legacyJdbc.update("insert into billing_owners(kind,subject,account_id) values('user','usr_legacy','bac_legacy')");
+                legacyJdbc.update("""
+                        insert into billing_operations(id,wallet_id,namespace,idempotency_key,digest_version,digest,
+                        operation_code,price_version,amount_units,funding,job_namespace,job_id)
+                        values('bop_legacy','wal_legacy','legacy','legacy-key',1,?,'image_generation',
+                        'billing-2026-10-14-v1',400,'wallet','legacy','job_legacy')
+                        ""","a".repeat(64));
+                legacyJdbc.update("insert into billing_reservations values('bop_legacy','wal_legacy',400,'reserved')");
+                migration.update(new Contexts(),new LabelExpression());
+                migration.update(new Contexts(),new LabelExpression());
+            }
+            var upgradedStore=new JdbcBillingStore(legacyJdbc);
+            var upgradedService=new BillingService(upgradedStore);
+            var upgradedTx=new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
+            var owner=new Owner("user","usr_legacy");
+            assertThat(upgradedTx.execute(t->upgradedService.wallet(owner)).totalUnits()).isEqualTo(600);
+            assertThat(legacyJdbc.queryForObject("select reserved_units from billing_credit_lots where wallet_id='wal_legacy'",Long.class)).isEqualTo(400);
+            Boolean captured=upgradedTx.execute(t->upgradedService.finish("bop_legacy",0,Outcome.captured));
+            assertThat(captured).isTrue();
+            var wallet=upgradedTx.execute(t->upgradedService.wallet(owner));
+            assertThat(wallet.totalUnits()).isEqualTo(200);
+            assertThat(wallet.availableUnits()).isEqualTo(200);
+            assertThat(wallet.usedUnits()).isEqualTo(400);
+            assertThat(legacyJdbc.queryForObject("select remaining_units from billing_credit_lots where wallet_id='wal_legacy'",Long.class)).isEqualTo(200);
+        } finally { jdbc.execute("drop schema "+schema+" cascade"); }
+    }
 }

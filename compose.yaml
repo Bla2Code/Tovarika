@@ -1,7 +1,7 @@
 services:
   app:
     image: tovarika-backend:local
-    profiles: ["full"]
+    profiles: [ "full" ]
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     build:
       context: ..
@@ -22,7 +22,7 @@ services:
       REFRESH_COOKIE_NAME: ${REFRESH_COOKIE_NAME:-tovarika_refresh}
       OAUTH_COOKIE_NAME: ${OAUTH_COOKIE_NAME:-tovarika_oauth}
       TRIAL_COOKIE_NAME: ${TRIAL_COOKIE_NAME:-tovarika_trial}
-      SPRING_CONFIG_IMPORT: "configtree:/run/secrets/yandex/"
+      SPRING_CONFIG_IMPORT: "configtree:/run/secrets/yandex/,optional:configtree:/run/secrets/robokassa/"
       YANDEX_REDIRECT_URI: ${YANDEX_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/yandex/callback}
       SMTP_HOST: ${SMTP_HOST:-host.docker.internal}
       SMTP_PORT: ${SMTP_PORT:-1025}
@@ -35,12 +35,19 @@ services:
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-6-luna}
       OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2.5-sunburst}
+      TOVARIKA_PAYMENTS_ROBOKASSA_MODE: ${ROBOKASSA_MODE:-test}
+      TOVARIKA_PAYMENTS_ROBOKASSA_MERCHANTLOGIN: ${ROBOKASSA_MERCHANT_LOGIN:-tovarika}
+      TOVARIKA_PAYMENTS_ROBOKASSA_TESTUSERIDS: ${ROBOKASSA_TEST_USER_IDS:-usr_3aeeac6f3d384975bf9f8fc03fae607d}
     secrets:
       - openai_api_key
       - source: yandex_client_id
         target: /run/secrets/yandex/tovarika.security.oauth.yandex.client-id
       - source: yandex_client_secret
         target: /run/secrets/yandex/tovarika.security.oauth.yandex.client-secret
+      - source: robokassa_test_password1
+        target: /run/secrets/robokassa/tovarika.payments.robokassa.test-password1
+      - source: robokassa_test_password2
+        target: /run/secrets/robokassa/tovarika.payments.robokassa.test-password2
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:
@@ -49,7 +56,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://localhost:8080/openapi/tovarika-openapi.yaml"]
+      test: [ "CMD", "wget", "--quiet", "--output-document=/dev/null", "http://localhost:8080/openapi/tovarika-openapi.yaml" ]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -66,7 +73,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tovarika} -d ${POSTGRES_DB:-tovarika}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tovarika} -d ${POSTGRES_DB:-tovarika}" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -83,7 +90,7 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: [ "CMD", "mc", "ready", "local" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -99,3 +106,7 @@ secrets:
     file: ${YANDEX_CLIENT_ID_SOURCE:-../.secrets/yandex_client_id}
   yandex_client_secret:
     file: ${YANDEX_CLIENT_SECRET_SOURCE:-../.secrets/yandex_client_secret}
+  robokassa_test_password1:
+    file: ${ROBOKASSA_TEST_PASSWORD1_SOURCE:-../.secrets/test_robokassa_pass1}
+  robokassa_test_password2:
+    file: ${ROBOKASSA_TEST_PASSWORD2_SOURCE:-../.secrets/test_robokassa_pass2}

@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 080-credit-packages
+      author: tovarika
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/080-credit-packages.sql
+            splitStatements: false
