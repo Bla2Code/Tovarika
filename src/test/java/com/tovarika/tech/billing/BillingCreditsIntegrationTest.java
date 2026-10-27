@@ -31,6 +31,11 @@ import org.testcontainers.junit.jupiter.*;
     "tovarika.security.jwt.secret-base64=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     "tovarika.security.password.breached-check-enabled=false",
     "tovarika.security.cors.allowed-origins=https://ui.test",
+    "tovarika.payments.robokassa.mode=test",
+    "tovarika.payments.robokassa.merchant-login=synthetic-shop",
+    "tovarika.payments.robokassa.test-password1=synthetic-one",
+    "tovarika.payments.robokassa.test-password2=synthetic-two",
+    "tovarika.payments.robokassa.test-user-ids=synthetic-payment-user",
     "tovarika.ai.openai.mode=stub"
 })
 class BillingCreditsIntegrationTest {
@@ -41,6 +46,7 @@ class BillingCreditsIntegrationTest {
     @Autowired AuthenticationCookieService cookies;
     @Autowired TransactionTemplate transactions;
     @Autowired JdbcTemplate jdbc;
+    @Autowired tools.jackson.databind.ObjectMapper json;
     MockMvc mvc;
     @BeforeEach void setUp() { mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build(); }
     @Test void pricesArePublicAndFinancialRoutesRequireIdentity() throws Exception {
@@ -110,4 +116,58 @@ class BillingCreditsIntegrationTest {
             .andExpect(status().isOk()).andExpect(jsonPath("$.wallet.totalUnits").value(1600)).andExpect(jsonPath("$.usedUnits").value(0));
     }
 
+    @Test void robokassaResultUpdatesPublicBalanceAndHistoryExactlyOnce() throws Exception {
+        String user="synthetic-payment-user";
+        var owner=new Owner("user",user);
+        transactions.execute(status->billing.grantTrial(owner,owner.id()));
+        String checkout=mvc.perform(post("/api/v1/billing/credit-purchases")
+                .with(jwt().jwt(j->j.subject(user)))
+                .header("Idempotency-Key",Billing.id("checkout_"))
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .content("{\"packageId\":\"credits_140_month\"}"))
+            .andExpect(status().isCreated()).andExpect(jsonPath("$.purchase.status").value("pending"))
+            .andReturn().getResponse().getContentAsString();
+        String id=json.readTree(checkout).path("purchase").path("id").asText();
+        long invoice=jdbc.queryForObject("select invoice_id from billing_credit_purchases where id=?",Long.class,id);
+
+        // Both browser returns are public and only navigate; even Success cannot grant credits.
+        for(String outcome:java.util.List.of("fail","success")) {
+            mvc.perform(get("/api/v1/billing/robokassa/"+outcome).param("Shp_purchaseId",id))
+                .andExpect(status().isSeeOther())
+                .andExpect(header().string("Location","/billing?payment="+id+"&paymentReturn="+outcome));
+        }
+        mvc.perform(get("/api/v1/billing/credits/wallet").with(jwt().jwt(j->j.subject(user))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.availableUnits").value(1600));
+        mvc.perform(post("/api/v1/billing/robokassa/result")
+                .contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
+                .param("OutSum","990.000000").param("InvId",Long.toString(invoice))
+                .param("Shp_purchaseId",id).param("SignatureValue","0".repeat(64)))
+            .andExpect(status().isBadRequest());
+
+        // A provider notification has no browser credentials or Origin header.
+        String signature=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(("990.000000:"+invoice+":synthetic-two:Shp_purchaseId="+id)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        for(int attempt=0;attempt<2;attempt++) {
+            mvc.perform(post("/api/v1/billing/robokassa/result")
+                    .contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
+                    .param("OutSum","990.000000").param("InvId",Long.toString(invoice))
+                    .param("Shp_purchaseId",id).param("SignatureValue",signature))
+                .andExpect(status().isOk()).andExpect(content().string("OK"+invoice));
+        }
+        mvc.perform(get("/api/v1/billing/credit-purchases/"+id).with(jwt().jwt(j->j.subject(user))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("succeeded"));
+        mvc.perform(get("/api/v1/billing/credits/wallet").with(jwt().jwt(j->j.subject(user))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.availableUnits").value(15600));
+        mvc.perform(get("/api/v1/billing/credits/summary").with(jwt().jwt(j->j.subject(user))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.wallet.totalUnits").value(15600))
+            .andExpect(jsonPath("$.usedUnits").value(0));
+        mvc.perform(get("/api/v1/billing/credits/history").with(jwt().jwt(j->j.subject(user))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(2))
+            .andExpect(jsonPath("$.items[0].kind").value("package_purchase"))
+            .andExpect(jsonPath("$.items[0].amountUnits").value(14000))
+            .andExpect(jsonPath("$.items[0].balanceAfterUnits").value(15600));
+        mvc.perform(get("/api/v1/billing/credit-purchases/"+id).with(jwt().jwt(j->j.subject("other-user"))))
+            .andExpect(status().isNotFound());
+    }
 }
