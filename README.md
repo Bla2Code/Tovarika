@@ -113,6 +113,10 @@ Liquibase-миграцию, переключающую `reference_asset_id`.
 Настройки адресов уведомления и возврата после тестовой оплаты описаны в
 [инструкции Robokassa](docs/robokassa-testing.md).
 
+Для дополнительных начислений Товариков по email без оплаты используйте
+[scripts/grant-credits.sql](scripts/grant-credits.sql), команды запуска — в [инструкции](scripts/README.md).
+Каждый запуск создает новое бессрочное начисление с записью в историю.
+
 Продакшн-развертывание выполняется через [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
 и использует [deploy/docker-compose.prod.yml](deploy/docker-compose.prod.yml) в качестве файла стека.
 

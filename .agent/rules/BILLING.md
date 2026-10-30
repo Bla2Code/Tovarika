@@ -29,6 +29,13 @@ bitmap edits — [IMAGE_EDITING.md](IMAGE_EDITING.md), transport/secrets — [OP
 - Покупки, checkout, подписки, admin API/UI и отдельный бонус регистрации не реализованы.
   Legacy billing DTO/paths сохранены deprecated и не служат основой нового ядра.
 
+Ручные дополнительные начисления выполняются через [scripts/grant-credits.sql](../../scripts/grant-credits.sql)
+по email активного пользователя, см. [инструкцию](../../scripts/README.md). Это отдельная транзакция
+с auth/topology/owner/wallet locks, новым `trial_grant`, проекцией истории и бессрочным lot.
+`reference` имеет вид `manual:<UUID>:<reason>`. Каждый запуск начисляет заново; защиты от повторов нет.
+`billing_trial_grants`, used/reserved и платежи не меняются. Кошелек должен быть ранее инициализирован
+приложением; при отсутствии или неоднозначности пользователя скрипт останавливается.
+
 Пример: grant 600 → reserve 400: total 600 / available 200 / used 0.
 Успех: 200 / 200 / 400 и один debit; ошибка: 600 / 600 / 0, успешной строки нет.
 Внутренняя полная компенсация debit вернёт 600 / 600 / 0, сохранив исходный debit.

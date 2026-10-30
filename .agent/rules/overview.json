@@ -228,6 +228,10 @@
       "purpose": "Проверка JSON и генерация нового immutable data changeset без подключения к БД."
     },
     {
+      "path": "scripts/grant-credits.sql",
+      "purpose": "Ручное бессрочное начисление Товариков по email через psql с записью в историю; каждый запуск — новое начисление. Инструкция: scripts/README.md."
+    },
+    {
       "path": "src/test/java/com/tovarika/tech/cards",
       "purpose": "PostgreSQL приёмка серии и обновления схемы с существующей первой Card."
     }

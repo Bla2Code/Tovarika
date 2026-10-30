@@ -1,26 +1,57 @@
 package com.tovarika.tech.billing;
 
-import static org.assertj.core.api.Assertions.*;
-import com.tovarika.tech.billing.application.*;
+import com.tovarika.tech.billing.application.BillingFailure;
+import com.tovarika.tech.billing.application.BillingService;
 import com.tovarika.tech.billing.domain.Billing;
-import com.tovarika.tech.billing.domain.Billing.*;
+import com.tovarika.tech.billing.domain.Billing.Code;
+import com.tovarika.tech.billing.domain.Billing.Command;
+import com.tovarika.tech.billing.domain.Billing.Entry;
+import com.tovarika.tech.billing.domain.Billing.Funding;
+import com.tovarika.tech.billing.domain.Billing.HistoryQuery;
+import com.tovarika.tech.billing.domain.Billing.Operation;
+import com.tovarika.tech.billing.domain.Billing.Outcome;
+import com.tovarika.tech.billing.domain.Billing.Owner;
+import com.tovarika.tech.billing.domain.Billing.Wallet;
 import com.tovarika.tech.billing.infrastructure.JdbcBillingStore;
-import java.sql.DriverManager;
-import java.time.*;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.function.Supplier;
-import liquibase.*;
+import liquibase.Contexts;
+import liquibase.LabelExpression;
+import liquibase.Liquibase;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.Container.ExecResult;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.*;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.MountableFile;
+
+import java.sql.DriverManager;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Testcontainers
 class BillingCorePostgresTest {
@@ -43,6 +74,7 @@ class BillingCorePostgresTest {
             }
         }
         jdbc.execute("create table billing_test_results(operation_id varchar(40) primary key, result text not null)");
+        POSTGRES.copyFileToContainer(MountableFile.forHostPath("scripts/grant-credits.sql"), "/tmp/grant-credits.sql");
     }
     @BeforeEach void resetActiveVersion() {
         jdbc.update("update billing_configuration set active_version='billing-2026-10-14-v1'");
@@ -506,6 +538,137 @@ class BillingCorePostgresTest {
         scheduler.expire();scheduler.expire();
         assertThat(jdbc.queryForObject("select total_units from billing_wallets where id=?",Long.class,walletId)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from billing_ledger where wallet_id=? and kind='credit_expiry'",Long.class,walletId)).isEqualTo(1);
+    }
+
+    private Owner manualGrantOwner(String email) {
+        var owner = owner();
+        jdbc.update("insert into users(id,email,status,created_at,updated_at) values(?,?,'ACTIVE',clock_timestamp(),clock_timestamp())",
+                owner.id(), email);
+        fund(owner, 600);
+        return owner;
+    }
+    private ExecResult manualGrant(String... variables) throws Exception {
+        var args = new ArrayList<>(List.of("psql", "-X", "-U", POSTGRES.getUsername(), "-d", POSTGRES.getDatabaseName()));
+        for (String variable : variables) args.addAll(List.of("-v", variable));
+        args.addAll(List.of("-f", "/tmp/grant-credits.sql"));
+        return POSTGRES.execInContainer(args.toArray(String[]::new));
+    }
+    private void assertGranted(ExecResult result) {
+        assertThat(result.getExitCode()).as(result.getStderr()).isZero();
+        assertThat(result.getStdout()).contains("COMMIT", "Granted", "wtx_");
+    }
+    @Test void manualGrantByEmailIsVisibleSpendableAndPreservesUsedReservesAndInitialGrant() throws Exception {
+        String email = Billing.id("manual_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        var pending = admit(owner, command(Code.image_erase, null));
+        var paid = admit(owner, command(Code.image_erase, null));
+        tx(() -> service.finish(paid.snapshot().operationId(), 0, Outcome.captured));
+        var before = read(owner);
+        String reason = "Компенсация 'за результат'; SELECT 1;";
+        assertGranted(manualGrant("email= " + email.toUpperCase(Locale.ROOT) + " ", "amount=25.50", "reason=" + reason));
+        var after = read(owner);
+        assertThat(after.totalUnits()).isEqualTo(before.totalUnits() + 2550);
+        assertThat(after.availableUnits()).isEqualTo(before.availableUnits() + 2550);
+        assertThat(after.reservedUnits()).isEqualTo(before.reservedUnits());
+        assertThat(after.usedUnits()).isEqualTo(before.usedUnits());
+        var history = tx(() -> service.history(owner, new HistoryQuery(null, null, "newest", 100, null)));
+        assertThat(history.items().getFirst().kind()).isEqualTo("trial_grant");
+        assertThat(history.items().getFirst().amountUnits()).isEqualTo(2550);
+        assertThat(history.items().getFirst().balanceAfterUnits()).isEqualTo(after.totalUnits());
+        var lot = jdbc.queryForMap("select * from billing_credit_lots where wallet_id=? and reference like 'manual:%'", after.id());
+        assertThat(lot.get("reference").toString()).endsWith(":" + reason);
+        assertThat(lot.get("expires_at")).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from billing_trial_grants where wallet_id=?", Long.class, after.id())).isEqualTo(1);
+        assertThat(tx(() -> service.trialAllowance(after.id()))).isEqualTo(600);
+        assertThat(jdbc.queryForObject("select count(*) from billing_credit_purchases where wallet_id=?", Long.class, after.id())).isZero();
+        var next = admit(owner, command(Code.image_generation, null));
+        tx(() -> service.finish(next.snapshot().operationId(), 0, Outcome.captured));
+        assertThat(jdbc.queryForObject("select remaining_units from billing_credit_lots where id=?", Long.class, lot.get("id"))).isEqualTo(2350);
+        tx(() -> service.finish(pending.snapshot().operationId(), 0, Outcome.released));
+    }
+    @Test void everyManualGrantInvocationAddsCreditsIncludingConcurrentRepeats() throws Exception {
+        String email = Billing.id("manual_repeat_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        try (var executor = Executors.newFixedThreadPool(4)) {
+            var actions = Collections.<Callable<ExecResult>>nCopies(4, () -> manualGrant("email=" + email, "amount=1.25"));
+            for (var result : executor.invokeAll(actions)) assertGranted(result.get(30, TimeUnit.SECONDS));
+        }
+        assertThat(read(owner).totalUnits()).isEqualTo(1100);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where wallet_id=? and reference like 'manual:%'",
+                Long.class, read(owner).id())).isEqualTo(4);
+    }
+    @Test void invalidManualGrantInputFailsWithoutChangingMoney() throws Exception {
+        String email = Billing.id("manual_invalid_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        var wallet = read(owner);
+        for (String amount : List.of("", "0", "-1", "1.001", "1,50", "1e3", "NaN", "90071992547409.92")) {
+            var result = manualGrant("email=" + email, "amount=" + amount);
+            assertThat(result.getExitCode()).as(amount).isNotZero();
+            assertThat(result.getStdout()).doesNotContain("Granted");
+        }
+        assertThat(manualGrant("email=" + email).getExitCode()).isNotZero();
+        assertThat(manualGrant("amount=25").getExitCode()).isNotZero();
+        assertThat(manualGrant("email=" + email, "amount=25", "reason=" + "x".repeat(211)).getExitCode()).isNotZero();
+        assertThat(jdbc.queryForObject("select total_units from billing_wallets where id=?", Long.class, wallet.id())).isEqualTo(wallet.totalUnits());
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where wallet_id=?", Long.class, wallet.id())).isEqualTo(1);
+    }
+    @Test void manualGrantRejectsMissingBlockedAmbiguousAndUninitializedRecipients() throws Exception {
+        String email = Billing.id("manual_recipient_") + "@example.com";
+        assertThat(manualGrant("email=" + email, "amount=25").getStderr()).contains("No active user");
+        var owner = manualGrantOwner(email);
+        jdbc.update("update users set status='BLOCKED' where id=?", owner.id());
+        assertThat(manualGrant("email=" + email, "amount=25").getStderr()).contains("No active user");
+        jdbc.update("update users set status='ACTIVE' where id=?", owner.id());
+        manualGrantOwner(email);
+        assertThat(manualGrant("email=" + email, "amount=25").getStderr()).contains("Multiple active users");
+        String uninitializedEmail = Billing.id("uninitialized_") + "@example.com";
+        jdbc.update("insert into users(id,email,status,created_at,updated_at) values(?,?,'ACTIVE',clock_timestamp(),clock_timestamp())",
+                Billing.id("usr_"), uninitializedEmail);
+        assertThat(manualGrant("email=" + uninitializedEmail, "amount=25").getStderr()).contains("wallet is not initialized");
+        assertThat(read(owner).totalUnits()).isEqualTo(600);
+    }
+    @Test void manualGrantResolvesMergedWalletAndRejectsBalanceOverflow() throws Exception {
+        String email = Billing.id("manual_merged_") + "@example.com";
+        var source = manualGrantOwner(email);
+        String originalWallet = read(source).id();
+        var trial = new Owner("trial", Billing.id("trial_"));
+        tx(() -> { service.attachOwner(originalWallet, trial); return null; });
+        var target = owner(); fund(target, 600);
+        tx(() -> { service.convertOwner(trial, target); return null; });
+        assertGranted(manualGrant("email=" + email, "amount=4"));
+        assertThat(read(target).totalUnits()).isEqualTo(1600);
+        assertThat(read(source).id()).isEqualTo(read(target).id());
+        assertThat(jdbc.queryForObject("select total_units from billing_wallets where id=?", Long.class, originalWallet)).isZero();
+        assertThat(tx(() -> service.history(source, new HistoryQuery(null, null, "newest", 100, null))).items()).hasSize(3);
+        String overflowEmail = Billing.id("manual_overflow_") + "@example.com";
+        var rich = manualGrantOwner(overflowEmail);
+        assertGranted(manualGrant("email=" + overflowEmail, "amount=90071992547403.91"));
+        assertThat(read(rich).totalUnits()).isEqualTo(Billing.MAX_UNITS);
+        var overflow = manualGrant("email=" + overflowEmail, "amount=0.01");
+        assertThat(overflow.getExitCode()).isNotZero();
+        assertThat(overflow.getStderr()).contains("resulting balance exceeds");
+        assertThat(read(rich).totalUnits()).isEqualTo(Billing.MAX_UNITS);
+    }
+    @Test void manualGrantRollsBackWalletAndHistoryIfLotInsertionFails() throws Exception {
+        String email = Billing.id("manual_rollback_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        var before = read(owner);
+        jdbc.execute("""
+                create function billing_test_reject_manual_lot() returns trigger language plpgsql as $$
+                begin raise exception 'Simulated lot failure'; end $$;
+                create trigger billing_test_manual_lot before insert on billing_credit_lots
+                for each row when (NEW.reference like 'manual:%') execute function billing_test_reject_manual_lot();
+                """);
+        try {
+            var result = manualGrant("email=" + email, "amount=25");
+            assertThat(result.getExitCode()).isNotZero();
+            assertThat(result.getStdout()).doesNotContain("Granted");
+            assertThat(result.getStderr()).contains("Simulated lot failure");
+            assertThat(read(owner)).isEqualTo(before);
+            assertThat(tx(() -> service.history(owner, new HistoryQuery(null, null, "newest", 100, null))).items()).hasSize(1);
+        } finally {
+            jdbc.execute("drop trigger billing_test_manual_lot on billing_credit_lots; drop function billing_test_reject_manual_lot()");
+        }
     }
 
     @Test void upgradeBackfillsExistingBalanceAndActiveReservationWithoutChangingMoney() throws Exception {
