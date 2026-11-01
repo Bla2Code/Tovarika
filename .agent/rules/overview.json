@@ -232,6 +232,10 @@
       "purpose": "Ручное бессрочное начисление Товариков по email через psql с записью в историю; каждый запуск — новое начисление. Инструкция: scripts/README.md."
     },
     {
+      "path": "scripts/debit-credits.sql",
+      "purpose": "Ручное списание доступных Товариков по email через psql с записью в историю; независимо от оплат, каждый запуск — новое списание. Инструкция: scripts/README.md."
+    },
+    {
       "path": "src/test/java/com/tovarika/tech/cards",
       "purpose": "PostgreSQL приёмка серии и обновления схемы с существующей первой Card."
     }

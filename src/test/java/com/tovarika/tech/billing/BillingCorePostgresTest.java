@@ -75,6 +75,7 @@ class BillingCorePostgresTest {
         }
         jdbc.execute("create table billing_test_results(operation_id varchar(40) primary key, result text not null)");
         POSTGRES.copyFileToContainer(MountableFile.forHostPath("scripts/grant-credits.sql"), "/tmp/grant-credits.sql");
+        POSTGRES.copyFileToContainer(MountableFile.forHostPath("scripts/debit-credits.sql"), "/tmp/debit-credits.sql");
     }
     @BeforeEach void resetActiveVersion() {
         jdbc.update("update billing_configuration set active_version='billing-2026-10-14-v1'");
@@ -548,14 +549,24 @@ class BillingCorePostgresTest {
         return owner;
     }
     private ExecResult manualGrant(String... variables) throws Exception {
+        return manualCreditScript("grant-credits.sql", variables);
+    }
+    private ExecResult manualDebit(String... variables) throws Exception {
+        return manualCreditScript("debit-credits.sql", variables);
+    }
+    private ExecResult manualCreditScript(String script, String... variables) throws Exception {
         var args = new ArrayList<>(List.of("psql", "-X", "-U", POSTGRES.getUsername(), "-d", POSTGRES.getDatabaseName()));
         for (String variable : variables) args.addAll(List.of("-v", variable));
-        args.addAll(List.of("-f", "/tmp/grant-credits.sql"));
+        args.addAll(List.of("-f", "/tmp/" + script));
         return POSTGRES.execInContainer(args.toArray(String[]::new));
     }
     private void assertGranted(ExecResult result) {
         assertThat(result.getExitCode()).as(result.getStderr()).isZero();
         assertThat(result.getStdout()).contains("COMMIT", "Granted", "wtx_");
+    }
+    private void assertDebited(ExecResult result) {
+        assertThat(result.getExitCode()).as(result.getStderr()).isZero();
+        assertThat(result.getStdout()).contains("COMMIT", "Debited", "wtx_");
     }
     @Test void manualGrantByEmailIsVisibleSpendableAndPreservesUsedReservesAndInitialGrant() throws Exception {
         String email = Billing.id("manual_") + "@example.com";
@@ -668,6 +679,155 @@ class BillingCorePostgresTest {
             assertThat(tx(() -> service.history(owner, new HistoryQuery(null, null, "newest", 100, null))).items()).hasSize(1);
         } finally {
             jdbc.execute("drop trigger billing_test_manual_lot on billing_credit_lots; drop function billing_test_reject_manual_lot()");
+        }
+    }
+
+    @Test void manualDebitByEmailKeepsHistoryUsedAndReservesConsistent() throws Exception {
+        String email = Billing.id("manual_debit_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        assertGranted(manualGrant("email=" + email, "amount=25.50"));
+        var pending = admit(owner, command(Code.image_erase, null));
+        var paid = admit(owner, command(Code.image_erase, null));
+        tx(() -> service.finish(paid.snapshot().operationId(), 0, Outcome.captured));
+        var before = read(owner);
+        String reason = "Ручное списание 'по запросу'; SELECT 1;";
+        assertDebited(manualDebit("email= " + email.toUpperCase(Locale.ROOT) + " ", "amount=25.50", "reason=" + reason));
+        var after = read(owner);
+        assertThat(after.totalUnits()).isEqualTo(before.totalUnits() - 2550);
+        assertThat(after.availableUnits()).isEqualTo(before.availableUnits() - 2550);
+        assertThat(after.usedUnits()).isEqualTo(before.usedUnits());
+        assertThat(after.reservedUnits()).isEqualTo(before.reservedUnits());
+        var history = tx(() -> service.history(owner, new HistoryQuery(null, null, "newest", 100, null)));
+        var entry = history.items().getFirst();
+        assertThat(entry.kind()).isEqualTo("credit_expiry");
+        assertThat(entry.amountUnits()).isEqualTo(2550);
+        assertThat(entry.balanceAfterUnits()).isEqualTo(after.totalUnits());
+        assertThat(entry.operationCode()).isNull();
+        assertThat(jdbc.queryForObject("select reference from billing_ledger where id=?", String.class, entry.id())).endsWith(":" + reason);
+        assertThat(tx(() -> service.trialAllowance(after.id()))).isEqualTo(600);
+        assertThat(jdbc.queryForObject("select count(*) from billing_credit_purchases where wallet_id=?", Long.class, after.id())).isZero();
+        var next = admit(owner, command(Code.image_erase, null));
+        tx(() -> service.finish(next.snapshot().operationId(), 0, Outcome.captured));
+        tx(() -> service.finish(pending.snapshot().operationId(), 0, Outcome.released));
+        assertThat(read(owner).totalUnits()).isEqualTo(200);
+        assertThat(read(owner).reservedUnits()).isZero();
+    }
+    @Test void manualDebitUsesExpiringLotsFirstAndCannotTakeActiveReserves() throws Exception {
+        String email = Billing.id("manual_debit_lots_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        String first = Billing.id("pay_"), second = Billing.id("pay_");
+        grantPackage(owner, first, 300, Instant.now().plusSeconds(3600));
+        grantPackage(owner, second, 500, Instant.now().plusSeconds(7200));
+        assertDebited(manualDebit("email=" + email, "amount=4"));
+        assertThat(jdbc.queryForObject("select remaining_units from billing_credit_lots where reference=?", Long.class, "purchase:" + first)).isZero();
+        assertThat(jdbc.queryForObject("select remaining_units from billing_credit_lots where reference=?", Long.class, "purchase:" + second)).isEqualTo(400);
+        var pending = admit(owner, command(Code.image_generation, null));
+        var before = read(owner);
+        var rejected = manualDebit("email=" + email, "amount=6.01");
+        assertThat(rejected.getExitCode()).isNotZero();
+        assertThat(rejected.getStderr()).contains("Insufficient available credits");
+        assertThat(read(owner)).isEqualTo(before);
+        assertDebited(manualDebit("email=" + email, "amount=6"));
+        assertThat(read(owner).availableUnits()).isZero();
+        assertThat(read(owner).reservedUnits()).isEqualTo(400);
+        tx(() -> service.finish(pending.snapshot().operationId(), 0, Outcome.captured));
+        assertThat(read(owner).totalUnits()).isZero();
+        assertThat(read(owner).usedUnits()).isEqualTo(400);
+    }
+    @Test void manualDebitExcludesExpiredCreditsEvenBeforeBackendExpiration() throws Exception {
+        String email = Billing.id("manual_debit_expired_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        String reference = Billing.id("pay_");
+        grantPackage(owner, reference, 14000, Instant.now().plusSeconds(3600));
+        expirePackage(reference);
+        String walletId = jdbc.queryForObject("select wallet_id from billing_credit_lots where reference=?", String.class, "purchase:" + reference);
+        var rejected = manualDebit("email=" + email, "amount=6.01");
+        assertThat(rejected.getExitCode()).isNotZero();
+        assertThat(rejected.getStderr()).contains("Insufficient available credits");
+        assertThat(jdbc.queryForObject("select total_units from billing_wallets where id=?", Long.class, walletId)).isEqualTo(14600);
+        assertDebited(manualDebit("email=" + email, "amount=6"));
+        assertThat(jdbc.queryForObject("select remaining_units from billing_credit_lots where reference=?", Long.class, "purchase:" + reference)).isEqualTo(14000);
+        assertThat(read(owner).totalUnits()).isZero();
+        assertThat(read(owner).usedUnits()).isZero();
+    }
+    @Test void repeatedConcurrentManualDebitsAreNewDebitsButCannotOverdraw() throws Exception {
+        String email = Billing.id("manual_debit_repeat_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        int successes = 0;
+        try (var executor = Executors.newFixedThreadPool(4)) {
+            var actions = Collections.<Callable<ExecResult>>nCopies(4, () -> manualDebit("email=" + email, "amount=2.50"));
+            for (var future : executor.invokeAll(actions)) {
+                var result = future.get(30, TimeUnit.SECONDS);
+                if (result.getExitCode() == 0) { assertDebited(result); successes++; }
+                else assertThat(result.getStderr()).contains("Insufficient available credits");
+            }
+        }
+        assertThat(successes).isEqualTo(2);
+        assertThat(read(owner).totalUnits()).isEqualTo(100);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where wallet_id=? and reference like 'manual_debit:%'",
+                Long.class, read(owner).id())).isEqualTo(2);
+    }
+    @Test void manualDebitRejectsInvalidInputAndRecipientWithoutChangingBalances() throws Exception {
+        String email = Billing.id("manual_debit_invalid_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        var before = read(owner);
+        for (String amount : List.of("", "0", "-1", "1.001", "1,50", "1e3", "NaN", "90071992547409.92")) {
+            var result = manualDebit("email=" + email, "amount=" + amount);
+            assertThat(result.getExitCode()).as(amount).isNotZero();
+            assertThat(result.getStdout()).doesNotContain("Debited");
+        }
+        assertThat(manualDebit("email=" + email).getExitCode()).isNotZero();
+        assertThat(manualDebit("amount=1").getExitCode()).isNotZero();
+        assertThat(manualDebit("email=" + email, "amount=1", "reason=").getExitCode()).isNotZero();
+        assertThat(manualDebit("email=" + email, "amount=1", "reason=" + "x".repeat(201)).getExitCode()).isNotZero();
+        assertThat(manualDebit("email=missing-" + email, "amount=1").getStderr()).contains("No active user");
+        jdbc.update("update users set status='BLOCKED' where id=?", owner.id());
+        assertThat(manualDebit("email=" + email, "amount=1").getStderr()).contains("No active user");
+        jdbc.update("update users set status='ACTIVE' where id=?", owner.id());
+        manualGrantOwner(email);
+        assertThat(manualDebit("email=" + email, "amount=1").getStderr()).contains("Multiple active users");
+        String uninitialized = Billing.id("manual_debit_uninitialized_") + "@example.com";
+        jdbc.update("insert into users(id,email,status,created_at,updated_at) values(?,?,'ACTIVE',clock_timestamp(),clock_timestamp())",
+                Billing.id("usr_"), uninitialized);
+        assertThat(manualDebit("email=" + uninitialized, "amount=1").getStderr()).contains("wallet is not initialized");
+        assertThat(read(owner)).isEqualTo(before);
+    }
+    @Test void manualDebitResolvesMergedWalletAndSpendsRetainedSourceLots() throws Exception {
+        String email = Billing.id("manual_debit_merged_") + "@example.com";
+        var source = manualGrantOwner(email);
+        String originalWallet = read(source).id();
+        var trial = new Owner("trial", Billing.id("trial_"));
+        tx(() -> { service.attachOwner(originalWallet, trial); return null; });
+        var target = owner(); fund(target, 600);
+        tx(() -> { service.convertOwner(trial, target); return null; });
+        assertDebited(manualDebit("email=" + email, "amount=4"));
+        assertThat(read(target).totalUnits()).isEqualTo(800);
+        assertThat(read(source).id()).isEqualTo(read(target).id());
+        assertThat(jdbc.queryForObject("select total_units from billing_wallets where id=?", Long.class, originalWallet)).isZero();
+        assertThat(jdbc.queryForObject("select remaining_units from billing_credit_lots where wallet_id=?", Long.class, originalWallet)).isEqualTo(200);
+        assertThat(tx(() -> service.history(source, new HistoryQuery(null, null, "newest", 100, null))).items()).hasSize(3);
+    }
+    @Test void manualDebitRollsBackLotsAndWalletWhenLedgerInsertFails() throws Exception {
+        String email = Billing.id("manual_debit_rollback_") + "@example.com";
+        var owner = manualGrantOwner(email);
+        var before = read(owner);
+        var lotsBefore = jdbc.queryForList("select * from billing_credit_lots where wallet_id=? order by id", before.id());
+        jdbc.execute("""
+                create function billing_test_reject_manual_debit() returns trigger language plpgsql as $$
+                begin raise exception 'Simulated debit failure'; end $$;
+                create trigger billing_test_manual_debit before insert on billing_ledger
+                for each row when (NEW.reference like 'manual_debit:%') execute function billing_test_reject_manual_debit();
+                """);
+        try {
+            var result = manualDebit("email=" + email, "amount=2");
+            assertThat(result.getExitCode()).isNotZero();
+            assertThat(result.getStdout()).doesNotContain("Debited");
+            assertThat(result.getStderr()).contains("Simulated debit failure");
+            assertThat(read(owner)).isEqualTo(before);
+            assertThat(jdbc.queryForList("select * from billing_credit_lots where wallet_id=? order by id", before.id())).isEqualTo(lotsBefore);
+            assertThat(tx(() -> service.history(owner, new HistoryQuery(null, null, "newest", 100, null))).items()).hasSize(1);
+        } finally {
+            jdbc.execute("drop trigger billing_test_manual_debit on billing_ledger; drop function billing_test_reject_manual_debit()");
         }
     }
 
