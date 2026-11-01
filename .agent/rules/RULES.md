@@ -26,6 +26,7 @@
 | Товарики: цены, кошелёк, AI admission, бесплатное право, история и recovery | [BILLING.md](BILLING.md) |
 | Межмодульные зависимости и граница с UI | [DEPS.md](DEPS.md) |
 | Authentication, authorization, cookies, CORS/CSRF, OAuth и защищённые endpoint | [SECURITY.md](SECURITY.md) |
+| Создание, хранение, подключение, ротация и перенос секретов между CI/Git hosting | [SECRETS.md](SECRETS.md) |
 | Регистрация и вход через Яндекс ID: OAuth, callback, аккаунт, trial и сессия | [YANDEX_OAUTH.md](YANDEX_OAUTH.md) |
 | OpenAI-клиент, модели, конфигурация, secrets и диагностика deployment | [OPENAI.md](OPENAI.md) |
 | Создание и изменение Liquibase-миграций | [MIGRATIONS.md](MIGRATIONS.md) |
@@ -69,8 +70,9 @@
   преобразуются в ошибки приложения без раскрытия внутренних деталей. Платёжные webhook
   проверяют подлинность и обрабатываются идемпотентно.
 - Настройки группируй в типизированных `@ConfigurationProperties`, не размазывай по `@Value`.
-  Локальные defaults допустимы в `application.properties`; production-секреты передаются
-  настроенным каналом deployment. Для OpenAI применяется файловый Compose secret по [OPENAI.md](OPENAI.md).
+  Несекретные локальные defaults допустимы в `application.properties`. Единый стандарт
+  секретов и план перехода текущих конфигураций — [SECRETS.md](SECRETS.md);
+  действующее подключение OpenAI — [OPENAI.md](OPENAI.md).
 - Соблюдай корневой [AGENTS.md](../../AGENTS.md): не читай и не передавай `.env`, `.env.*`,
   credentials, ключи, токены и источники Compose secrets. Не коммить и не логируй секреты,
   cookies, платёжные данные и содержимое пользовательских файлов. Примеры используют placeholders.

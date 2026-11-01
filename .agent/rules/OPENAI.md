@@ -6,6 +6,10 @@ prompt анализа товара, Compose secrets или deployment flow. Зд
 карточки — [CARD_GENERATION.md](CARD_GENERATION.md), prompt карточки — [CARD_PROMPTS.md](CARD_PROMPTS.md),
 AI-интерфейсы и нормализация изображений — [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 
+Общий стандарт создания и доставки секретов — [SECRETS.md](SECRETS.md). Описанные
+ниже `OPENAI_API_KEY_FILE` и пути sources относятся к текущей реализации; переход
+OpenAI на общий configtree ещё не выполнен. Новые способы хранения здесь не вводятся.
+
 ## 1. Текущая реализация
 
 - `OPENAI_MODE=stub` использует `StubOpenAiClient` и не выполняет сетевых запросов.

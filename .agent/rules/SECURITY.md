@@ -4,6 +4,9 @@
 сессий, cookies, CORS/CSRF, OAuth, паролей и защищённых endpoint. Он дополняет `RULES.md`; при расхождении
 с API приоритет имеет Authentication Contract.
 
+Создание, хранение, доставка и ротация deployment secrets регулируются
+[SECRETS.md](SECRETS.md); там же отмечены текущие расхождения конфигураций со стандартом.
+
 Текущий backend-поток регистрации и входа через Яндекс описан отдельно в
 [YANDEX_OAUTH.md](YANDEX_OAUTH.md), включая хранение попытки, callback и перенос trial.
 

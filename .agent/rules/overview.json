@@ -164,6 +164,10 @@
       "purpose": "Обязательные правила расширения реализованного Authentication/Spring Security и написания security acceptance-тестов."
     },
     {
+      "path": ".agent/rules/SECRETS.md",
+      "purpose": "Единый стандарт создания, хранения, подключения и переноса секретов между CI/Git hosting; реестр и план миграции текущих конфигураций."
+    },
+    {
       "path": ".agent/rules/OPENAI.md",
       "purpose": "Обязательные правила настройки, защиты secret, локального и production-запуска и диагностики OpenAI API."
     },
@@ -366,7 +370,7 @@
       "ANALYSIS_WORKER_ENABLED",
       "CARD_GENERATION_WORKER_ENABLED"
     ],
-    "rule": "Локальные defaults предназначены для разработки; production-секреты передаются каналом deployment и не хранятся в Git. OpenAI API key поступает из файлового Compose secret, не из environment контейнера."
+    "rule": "Единый стандарт секретов и план перехода описаны в .agent/rules/SECRETS.md. Сейчас OpenAI/Yandex/Robokassa используют файловые Compose secrets, JWT/БД/MinIO/SMTP — environment; SECRETS_DIR пока не поддерживается. Значения секретов не хранятся в Git."
   },
   "commands": {
     "prepareContract": "(cd ../tovarika-api-contract && npm ci && npm run build)",
@@ -397,6 +401,7 @@
     "Перед изменением authentication, authorization, cookies, CORS/CSRF, OAuth, sessions или protected endpoint обязательно применяется .agent/rules/SECURITY.md.",
     "Authentication security semantics проверяются на PostgreSQL 18 через Testcontainers; H2 для locking/concurrency не используется.",
     "JWT_SECRET_BASE64 не имеет значения по умолчанию и должен быть стабильным production secret длиной не менее 256 бит.",
+    "Перед созданием или изменением секретов и их доставки применяется .agent/rules/SECRETS.md; целевой стандарт отделён от ещё не мигрировавших конфигураций.",
     "Перед изменением OpenAI client, prompt, models, Compose secrets или deployment flow обязательно применяется .agent/rules/OPENAI.md.",
     "При изменении billing/AI jobs/trial credits применяется .agent/rules/BILLING.md: finance и terminal result атомарны; wallet guards берутся до domain locks, AI/MinIO вне транзакций.",
     "Правила отдельного сценария читаются по ссылке из RULES.md; подробная логика не дублируется в общем документе."
@@ -419,6 +424,7 @@
       "trial": ".agent/rules/TRIAL.md",
       "billing": ".agent/rules/BILLING.md",
       "security": ".agent/rules/SECURITY.md",
+      "secrets": ".agent/rules/SECRETS.md",
       "openai": ".agent/rules/OPENAI.md",
       "migrations": ".agent/rules/MIGRATIONS.md"
     }

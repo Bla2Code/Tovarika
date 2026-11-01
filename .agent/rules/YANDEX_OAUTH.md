@@ -222,6 +222,9 @@ cookie flags, state/PKCE, отмена, expiry/replay, недействующи�
 
 ## 10. Файловые secrets в Docker Compose
 
+Ниже описано текущее подключение. Единый стандарт, создание секретов и переход
+на общий каталог/configtree заданы в [SECRETS.md](SECRETS.md); миграция ещё не выполнена.
+
 Client ID и Client Secret в `compose.yaml` и `deploy/docker-compose.prod.yml`
 монтируются из отдельных файлов через Compose secrets. Значения credentials
 не передаются через environment контейнера. Java-код не реализует переменные
