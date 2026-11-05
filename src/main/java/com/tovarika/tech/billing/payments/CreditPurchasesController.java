@@ -13,12 +13,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/billing")
 public class CreditPurchasesController {
     private final CreditPurchases purchases;
-    private final RobokassaGateway gateway;
     private final RequestAuthenticationContext identity;
     private final AuthenticationStore auth;
-    public CreditPurchasesController(CreditPurchases purchases,RobokassaGateway gateway,
+    public CreditPurchasesController(CreditPurchases purchases,
             RequestAuthenticationContext identity,AuthenticationStore auth) {
-        this.purchases=purchases;this.gateway=gateway;this.identity=identity;this.auth=auth;
+        this.purchases=purchases;this.identity=identity;this.auth=auth;
     }
     @GetMapping("/credit-packages")
     public ResponseEntity<CreditPurchases.Catalog> catalog() {
@@ -43,7 +42,7 @@ public class CreditPurchasesController {
     }
     @PostMapping(value="/robokassa/result",consumes=MediaType.APPLICATION_FORM_URLENCODED_VALUE,produces=MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> result(@RequestParam MultiValueMap<String,String> parameters) {
-        return response(200,purchases.accept(gateway.verify(parameters)));
+        return response(200,purchases.accept(parameters));
     }
     @GetMapping("/robokassa/success")
     public ResponseEntity<Void> success(@RequestParam(name="Shp_purchaseId",required=false) String id) { return redirect(id,"success"); }

@@ -48,6 +48,10 @@ services:
         target: /run/secrets/robokassa/tovarika.payments.robokassa.test-password1
       - source: robokassa_test_password2
         target: /run/secrets/robokassa/tovarika.payments.robokassa.test-password2
+      - source: robokassa_live_password1
+        target: /run/secrets/robokassa/tovarika.payments.robokassa.live-password1
+      - source: robokassa_live_password2
+        target: /run/secrets/robokassa/tovarika.payments.robokassa.live-password2
     ports:
       - "${APP_PORT:-8080}:8080"
     depends_on:
@@ -110,3 +114,7 @@ secrets:
     file: ${ROBOKASSA_TEST_PASSWORD1_SOURCE:-../.secrets/test_robokassa_pass1}
   robokassa_test_password2:
     file: ${ROBOKASSA_TEST_PASSWORD2_SOURCE:-../.secrets/test_robokassa_pass2}
+  robokassa_live_password1:
+    file: ${ROBOKASSA_LIVE_PASSWORD1_SOURCE:-../.secrets/live_robokassa_pass1}
+  robokassa_live_password2:
+    file: ${ROBOKASSA_LIVE_PASSWORD2_SOURCE:-../.secrets/live_robokassa_pass2}

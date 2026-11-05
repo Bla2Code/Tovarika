@@ -1,0 +1,7 @@
+databaseChangeLog:
+  - changeSet:
+      id: 082-robokassa-receipt
+      author: tovarika
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/082-robokassa-receipt.sql

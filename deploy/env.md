@@ -86,6 +86,8 @@
   - [YANDEX_CLIENT_SECRET_SOURCE](#yandex_client_secret_source)
   - [ROBOKASSA_TEST_PASSWORD1_SOURCE](#robokassa_test_password1_source)
   - [ROBOKASSA_TEST_PASSWORD2_SOURCE](#robokassa_test_password2_source)
+  - [ROBOKASSA_LIVE_PASSWORD1_SOURCE](#robokassa_live_password1_source)
+  - [ROBOKASSA_LIVE_PASSWORD2_SOURCE](#robokassa_live_password2_source)
   - [Соответствие secrets и свойств приложения](#соответствие-secrets-и-свойств-приложения)
 - [template-assets-init](#template-assets-init)
 - [Дополнительные свойства Spring](#дополнительные-свойства-spring)
@@ -571,9 +573,9 @@
 
 - **Тип:** string, enum
 - **В приложении:** `TOVARIKA_PAYMENTS_ROBOKASSA_MODE` → `tovarika.payments.robokassa.mode`.
-- **По умолчанию:** Java — `DISABLED`; оба Compose — `test`.
+- **По умолчанию:** Java — `DISABLED`; локальный Compose — `test`; production Compose — `live`.
 - **Пример:** `test`
-- **Описание:** `DISABLED` отключает создание оплат, `TEST` разрешает тестовые оплаты при настроенных credentials и allowlist пользователей. `LIVE` зарезервирован, создание live-оплат пока не реализовано и в test не переключается. Для прямого запуска используется полное имя environment в поле «В приложении».
+- **Описание:** `DISABLED` отключает создание оплат, `TEST` разрешает тестовые оплаты при настроенных тестовых паролях и allowlist пользователей. `LIVE` разрешает реальные оплаты всем авторизованным пользователям при настроенных рабочих паролях и не переключается в test при их отсутствии. Подтверждения проверяются по сохранённому режиму заказа независимо от текущего режима новых оплат. Для прямого запуска используется полное имя environment в поле «В приложении».
 
 #### **ROBOKASSA_MERCHANT_LOGIN**
 
@@ -589,11 +591,12 @@
 - **В приложении:** `TOVARIKA_PAYMENTS_ROBOKASSA_TESTUSERIDS` → `tovarika.payments.robokassa.test-user-ids`.
 - **По умолчанию:** Java — пустой список; в обоих Compose задан один ID тестового пользователя.
 - **Пример:** `usr_example_one,usr_example_two`
-- **Описание:** Список внутренних ID пользователей, которым разрешены тестовые оплаты. Для своего стенда список нужно переопределить. Включённый `TEST` без подходящего пользователя и двух тестовых паролей оплату не разрешает.
+- **Описание:** Список внутренних ID пользователей, которым разрешены тестовые оплаты. Для своего стенда список нужно переопределить. Включённый `TEST` без подходящего пользователя и двух тестовых паролей оплату не разрешает. В `LIVE` список не ограничивает доступ.
 
 Адреса Result/Success/Fail URL настраиваются в кабинете магазина; порядок и текущие
 URL описаны в [инструкции Robokassa](../docs/robokassa-testing.md).
-Тестовые пароли поступают через secrets ниже.
+Тестовые и рабочие пароли поступают через secrets ниже. Порядок ручного добавления
+рабочих файлов — в [инструкции LIVE](../docs/robokassa-live.md).
 
 ## Файловые секреты
 
@@ -657,6 +660,22 @@ mount, не передаются в приложение и не содержа�
 - **Пример:** `/secure/secrets/test_robokassa_pass2`
 - **Описание:** Файл тестового пароля № 2 для проверки подписи серверного Result URL. Без config tree Java default свойства — пусто.
 
+#### **ROBOKASSA_LIVE_PASSWORD1_SOURCE**
+
+- **Тип:** string, путь к secret-файлу
+- **В приложении:** secret `robokassa_live_password1` → `tovarika.payments.robokassa.live-password1`.
+- **По умолчанию:** локальный Compose — `../.secrets/live_robokassa_pass1`; production Compose — `secrets/live_robokassa_pass1`.
+- **Пример:** `/secure/secrets/live_robokassa_pass1`
+- **Описание:** Файл рабочего пароля № 1 для подписи запроса реальной оплаты. Java default — пусто. Добавляется вручную на хосте, значение должно отличаться от тестового пароля № 1.
+
+#### **ROBOKASSA_LIVE_PASSWORD2_SOURCE**
+
+- **Тип:** string, путь к secret-файлу
+- **В приложении:** secret `robokassa_live_password2` → `tovarika.payments.robokassa.live-password2`.
+- **По умолчанию:** локальный Compose — `../.secrets/live_robokassa_pass2`; production Compose — `secrets/live_robokassa_pass2`.
+- **Пример:** `/secure/secrets/live_robokassa_pass2`
+- **Описание:** Файл рабочего пароля № 2 для проверки серверного подтверждения реальной оплаты. Java default — пусто. Добавляется вручную на хосте, значение должно отличаться от тестового пароля № 2.
+
 ### Соответствие secrets и свойств приложения
 
 Все значения secret-файлов имеют тип `string`; в примерах содержимого допускается
@@ -669,11 +688,14 @@ mount, не передаются в приложение и не содержа�
 | `yandex_client_secret` | `/run/secrets/yandex/tovarika.security.oauth.yandex.client-secret` | `AuthenticationProperties`, client secret. |
 | `robokassa_test_password1` | `/run/secrets/robokassa/tovarika.payments.robokassa.test-password1` | `RobokassaSettings`, тестовый пароль № 1. |
 | `robokassa_test_password2` | `/run/secrets/robokassa/tovarika.payments.robokassa.test-password2` | `RobokassaSettings`, тестовый пароль № 2. |
+| `robokassa_live_password1` | `/run/secrets/robokassa/tovarika.payments.robokassa.live-password1` | `RobokassaSettings`, рабочий пароль № 1. |
+| `robokassa_live_password2` | `/run/secrets/robokassa/tovarika.payments.robokassa.live-password2` | `RobokassaSettings`, рабочий пароль № 2. |
 
 `JWT_SECRET_BASE64`, `DB_PASSWORD` / `POSTGRES_PASSWORD`, `MINIO_SECRET_KEY` и
 `SMTP_PASSWORD` сейчас передаются через environment, а не через перечисленные
 Compose secrets. Для прямого запуска Robokassa также связывает environment
-`TOVARIKA_PAYMENTS_ROBOKASSA_TESTPASSWORD1` и `TOVARIKA_PAYMENTS_ROBOKASSA_TESTPASSWORD2`
+`TOVARIKA_PAYMENTS_ROBOKASSA_TESTPASSWORD1`, `TOVARIKA_PAYMENTS_ROBOKASSA_TESTPASSWORD2`,
+`TOVARIKA_PAYMENTS_ROBOKASSA_LIVEPASSWORD1` и `TOVARIKA_PAYMENTS_ROBOKASSA_LIVEPASSWORD2`
 с соответствующими свойствами; defaults пустые, тип — `string`, пример — `<REDACTED>`.
 В Compose эти environment-переменные не передаются: используются файлы.
 

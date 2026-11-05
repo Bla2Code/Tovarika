@@ -113,8 +113,9 @@ Liquibase-миграцию, переключающую `reference_asset_id`.
 Полный справочник переменных приложения, Compose, секретов и deployment:
 [Конфигурация сервисов](deploy/env.md).
 
-Настройки адресов уведомления и возврата после тестовой оплаты описаны в
-[инструкции Robokassa](docs/robokassa-testing.md).
+Настройки реальной оплаты и файлы рабочих паролей описаны в
+[инструкции Robokassa LIVE](docs/robokassa-live.md), тестовая оплата — в
+[инструкции TEST](docs/robokassa-testing.md).
 
 Для дополнительных начислений Товариков по email без оплаты используйте
 [scripts/grant-credits.sql](scripts/grant-credits.sql), команды запуска — в [инструкции](scripts/README.md).

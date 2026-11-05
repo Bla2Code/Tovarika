@@ -35,7 +35,7 @@ services:
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-6-luna}
       OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2.5-sunburst}
-      TOVARIKA_PAYMENTS_ROBOKASSA_MODE: ${ROBOKASSA_MODE:-test}
+      TOVARIKA_PAYMENTS_ROBOKASSA_MODE: ${ROBOKASSA_MODE:-live}
       TOVARIKA_PAYMENTS_ROBOKASSA_MERCHANTLOGIN: ${ROBOKASSA_MERCHANT_LOGIN:-tovarika}
       TOVARIKA_PAYMENTS_ROBOKASSA_TESTUSERIDS: ${ROBOKASSA_TEST_USER_IDS:-usr_3aeeac6f3d384975bf9f8fc03fae607d}
     secrets:
@@ -48,6 +48,10 @@ services:
         target: /run/secrets/robokassa/tovarika.payments.robokassa.test-password1
       - source: robokassa_test_password2
         target: /run/secrets/robokassa/tovarika.payments.robokassa.test-password2
+      - source: robokassa_live_password1
+        target: /run/secrets/robokassa/tovarika.payments.robokassa.live-password1
+      - source: robokassa_live_password2
+        target: /run/secrets/robokassa/tovarika.payments.robokassa.live-password2
     expose:
       - "8080"
     networks:
@@ -134,3 +138,7 @@ secrets:
     file: ${ROBOKASSA_TEST_PASSWORD1_SOURCE:-secrets/test_robokassa_pass1}
   robokassa_test_password2:
     file: ${ROBOKASSA_TEST_PASSWORD2_SOURCE:-secrets/test_robokassa_pass2}
+  robokassa_live_password1:
+    file: ${ROBOKASSA_LIVE_PASSWORD1_SOURCE:-secrets/live_robokassa_pass1}
+  robokassa_live_password2:
+    file: ${ROBOKASSA_LIVE_PASSWORD2_SOURCE:-secrets/live_robokassa_pass2}

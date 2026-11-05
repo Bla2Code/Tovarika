@@ -12,6 +12,7 @@ import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.MultiValueMap;
 
 @Service
 public class CreditPurchases {
@@ -25,7 +26,7 @@ public class CreditPurchases {
     public Catalog catalog(String userId) {
         var packages=jdbc.query("select * from billing_credit_packages order by price_kopecks",(r,n) ->
                 new CreditPackage(r.getString("id"),r.getLong("price_kopecks"),r.getLong("credit_units"),r.getInt("validity_months")));
-        return new Catalog(packages,settings.availableFor(userId),true);
+        return new Catalog(packages,settings.availableFor(userId),settings.mode()==RobokassaMode.TEST);
     }
     @Transactional
     public Checkout create(String userId,String packageId,String idempotencyKey) {
@@ -45,12 +46,13 @@ public class CreditPurchases {
             var selected=packages.getFirst();
             purchase=jdbc.queryForObject("""
                     insert into billing_credit_purchases(id,user_id,wallet_id,idempotency_key,package_id,
-                    price_kopecks,credit_units,test_mode) values(?,?,?,?,?,?,?,true) returning *
+                    price_kopecks,credit_units,test_mode,receipt_json) values(?,?,?,?,?,?,?,?,?) returning *
                     """,(r,n)->row(r),Billing.id("pay_"),userId,wallet.id(),idempotencyKey,
-                    selected.id,selected.priceKopecks,selected.creditUnits);
+                    selected.id,selected.priceKopecks,selected.creditUnits,settings.mode()==RobokassaMode.TEST,
+                    RobokassaReceipt.npd(selected.priceKopecks,selected.creditUnits));
         }
         return new Checkout(purchase.purchase,gateway.confirmationUrl(purchase.purchase.id,
-                purchase.invoiceId,purchase.purchase.priceKopecks,purchase.purchase.creditUnits));
+                purchase.invoiceId,purchase.purchase.priceKopecks,purchase.purchase.creditUnits,purchase.purchase.testMode,purchase.receiptJson));
     }
     public Purchase get(String userId,String purchaseId) {
         if(purchaseId==null || !purchaseId.matches("pay_[0-9a-f]{32}")) throw missing();
@@ -59,13 +61,15 @@ public class CreditPurchases {
         return rows.getFirst().purchase;
     }
     @Transactional
-    public String accept(RobokassaGateway.Notification notification) {
+    public String accept(MultiValueMap<String,String> parameters) {
+        var notification=gateway.parse(parameters);
         var rows=jdbc.query("select * from billing_credit_purchases where id=? and invoice_id=?",
                 (r,n)->row(r),notification.purchaseId(),notification.invoiceId());
         if(rows.isEmpty()) throw BillingFailure.validation();
         var initial=rows.getFirst();
+        gateway.verify(notification,initial.purchase.testMode);
         // Match snapshot before taking locks or changing the wallet.
-        if(initial.purchase.priceKopecks!=notification.priceKopecks() || !initial.purchase.testMode) throw BillingFailure.validation();
+        if(initial.purchase.priceKopecks!=notification.priceKopecks()) throw BillingFailure.validation();
         var wallet=wallets.lockWallet(initial.walletId);
         var purchase=jdbc.queryForObject("select * from billing_credit_purchases where id=? for update",(r,n)->row(r),notification.purchaseId());
         if(purchase.purchase.status.equals("pending")) {
@@ -94,11 +98,11 @@ public class CreditPurchases {
         return new PurchaseRow(new Purchase(r.getString("id"),r.getString("package_id"),r.getLong("price_kopecks"),
                 r.getLong("credit_units"),r.getString("status"),r.getBoolean("test_mode"),
                 r.getTimestamp("created_at").toInstant(),instant(r,"paid_at"),instant(r,"expires_at")),
-                r.getLong("invoice_id"),r.getString("wallet_id"));
+                r.getLong("invoice_id"),r.getString("wallet_id"),r.getString("receipt_json"));
     }
     private Instant instant(ResultSet r,String name) throws SQLException { var value=r.getTimestamp(name);return value==null?null:value.toInstant(); }
     private static BillingFailure missing() { return new BillingFailure(404,"VALIDATION_ERROR","Payment not found"); }
-    private record PurchaseRow(Purchase purchase,long invoiceId,String walletId) {}
+    private record PurchaseRow(Purchase purchase,long invoiceId,String walletId,String receiptJson) {}
     public record CreditPackage(String id,long priceKopecks,long creditUnits,int validityMonths) {}
     public record Catalog(List<CreditPackage> items,boolean checkoutAvailable,boolean testMode) {}
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)

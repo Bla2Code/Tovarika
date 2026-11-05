@@ -1,0 +1,7 @@
+databaseChangeLog:
+  - changeSet:
+      id: 081-robokassa-live
+      author: tovarika
+      changes:
+        - sqlFile:
+            path: db/changelog/changes/081-robokassa-live.sql

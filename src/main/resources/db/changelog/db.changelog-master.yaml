@@ -161,3 +161,7 @@ databaseChangeLog:
       file: db/changelog/changes/079-fashion-footwear-variants.yaml
   - include:
       file: db/changelog/changes/080-credit-packages.yaml
+  - include:
+      file: db/changelog/changes/081-robokassa-live.yaml
+  - include:
+      file: db/changelog/changes/082-robokassa-receipt.yaml

@@ -31,10 +31,12 @@ import org.testcontainers.junit.jupiter.*;
     "tovarika.security.jwt.secret-base64=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     "tovarika.security.password.breached-check-enabled=false",
     "tovarika.security.cors.allowed-origins=https://ui.test",
-    "tovarika.payments.robokassa.mode=test",
+    "tovarika.payments.robokassa.mode=live",
     "tovarika.payments.robokassa.merchant-login=synthetic-shop",
     "tovarika.payments.robokassa.test-password1=synthetic-one",
     "tovarika.payments.robokassa.test-password2=synthetic-two",
+    "tovarika.payments.robokassa.live-password1=synthetic-live-one",
+    "tovarika.payments.robokassa.live-password2=synthetic-live-two",
     "tovarika.payments.robokassa.test-user-ids=synthetic-payment-user",
     "tovarika.ai.openai.mode=stub"
 })
@@ -116,19 +118,56 @@ class BillingCreditsIntegrationTest {
             .andExpect(status().isOk()).andExpect(jsonPath("$.wallet.totalUnits").value(1600)).andExpect(jsonPath("$.usedUnits").value(0));
     }
 
-    @Test void robokassaResultUpdatesPublicBalanceAndHistoryExactlyOnce() throws Exception {
-        String user="synthetic-payment-user";
+    @Test void liveCheckoutIsAvailableToEveryAuthenticatedUser() throws Exception {
+        mvc.perform(get("/api/v1/billing/credit-packages")).andExpect(status().isOk())
+            .andExpect(jsonPath("$.checkoutAvailable").value(false)).andExpect(jsonPath("$.testMode").value(false));
+        mvc.perform(post("/api/v1/billing/credit-purchases")
+                .header("Idempotency-Key",Billing.id("checkout_")).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .content("{\"packageId\":\"credits_140_month\"}")).andExpect(status().isUnauthorized());
+        for(String user:java.util.List.of(Billing.id("usr_"),Billing.id("usr_"))) {
+            mvc.perform(get("/api/v1/billing/credit-packages").with(jwt().jwt(j->j.subject(user))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.checkoutAvailable").value(true))
+                .andExpect(jsonPath("$.testMode").value(false));
+            mvc.perform(post("/api/v1/billing/credit-purchases").with(jwt().jwt(j->j.subject(user)))
+                    .header("Idempotency-Key",Billing.id("checkout_")).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .content("{\"packageId\":\"credits_140_month\"}"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.purchase.testMode").value(false))
+                .andExpect(jsonPath("$.confirmationUrl").value(org.hamcrest.Matchers.containsString("IsTest=0")));
+        }
+    }
+    @Test void liveRobokassaResultUpdatesPublicBalanceAndHistoryExactlyOnce() throws Exception {
+        String user=Billing.id("usr_");
         var owner=new Owner("user",user);
         transactions.execute(status->billing.grantTrial(owner,owner.id()));
+        String checkoutKey=Billing.id("checkout_");
         String checkout=mvc.perform(post("/api/v1/billing/credit-purchases")
                 .with(jwt().jwt(j->j.subject(user)))
-                .header("Idempotency-Key",Billing.id("checkout_"))
+                .header("Idempotency-Key",checkoutKey)
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .content("{\"packageId\":\"credits_140_month\"}"))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.purchase.status").value("pending"))
+            .andExpect(jsonPath("$.purchase.testMode").value(false))
             .andReturn().getResponse().getContentAsString();
         String id=json.readTree(checkout).path("purchase").path("id").asText();
         long invoice=jdbc.queryForObject("select invoice_id from billing_credit_purchases where id=?",Long.class,id);
+        String paymentQuery=java.net.URI.create(json.readTree(checkout).path("confirmationUrl").asText()).getRawQuery();
+        var paymentParameters=java.util.Arrays.stream(paymentQuery.split("&")).map(p->p.split("=",2))
+                .collect(java.util.stream.Collectors.toMap(p->p[0],p->java.net.URLDecoder.decode(p[1],java.nio.charset.StandardCharsets.UTF_8)));
+        String encodedReceipt=paymentParameters.get("Receipt");
+        assertThat(paymentQuery).contains("IsTest=0","Receipt=%257B","SignatureValue="+
+                paymentSignature("synthetic-shop:990.00:"+invoice+":"+encodedReceipt+":synthetic-live-one:Shp_purchaseId="+id));
+        String receipt=java.net.URLDecoder.decode(encodedReceipt,java.nio.charset.StandardCharsets.UTF_8);
+        var receiptItem=json.readTree(receipt).path("items").get(0);
+        assertThat(receiptItem.path("name").asText()).contains("140 Товариков");
+        assertThat(receiptItem.path("quantity").asInt()).isEqualTo(1);
+        assertThat(receiptItem.path("sum").decimalValue()).isEqualByComparingTo("990.00");
+        assertThat(receiptItem.path("tax").asText()).isEqualTo("none");
+        assertThat(jdbc.queryForObject("select receipt_json from billing_credit_purchases where id=?",String.class,id)).isEqualTo(receipt);
+        String retryCheckout=mvc.perform(post("/api/v1/billing/credit-purchases")
+                .with(jwt().jwt(j->j.subject(user))).header("Idempotency-Key",checkoutKey)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"packageId\":\"credits_140_month\"}"))
+            .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(retryCheckout).path("confirmationUrl").asText()).isEqualTo(json.readTree(checkout).path("confirmationUrl").asText());
 
         // Both browser returns are public and only navigate; even Success cannot grant credits.
         for(String outcome:java.util.List.of("fail","success")) {
@@ -144,10 +183,22 @@ class BillingCreditsIntegrationTest {
                 .param("Shp_purchaseId",id).param("SignatureValue","0".repeat(64)))
             .andExpect(status().isBadRequest());
 
+        // Neither a valid TEST signature nor a signed wrong amount can confirm a LIVE order.
+        mvc.perform(post("/api/v1/billing/robokassa/result").contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
+                .param("OutSum","990.000000").param("InvId",Long.toString(invoice)).param("Shp_purchaseId",id).param("IsTest","0")
+                .param("SignatureValue",paymentSignature("990.000000:"+invoice+":synthetic-two:Shp_purchaseId="+id)))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/billing/robokassa/result").contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
+                .param("OutSum","1.000000").param("InvId",Long.toString(invoice)).param("Shp_purchaseId",id)
+                .param("SignatureValue",paymentSignature("1.000000:"+invoice+":synthetic-live-two:Shp_purchaseId="+id)))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/billing/credits/wallet").with(jwt().jwt(j->j.subject(user))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.availableUnits").value(1600));
+        mvc.perform(get("/api/v1/billing/credit-purchases/"+id).with(jwt().jwt(j->j.subject(user))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("pending"));
+
         // A provider notification has no browser credentials or Origin header.
-        String signature=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
-                .digest(("990.000000:"+invoice+":synthetic-two:Shp_purchaseId="+id)
-                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        String signature=paymentSignature("990.000000:"+invoice+":synthetic-live-two:Shp_purchaseId="+id);
         for(int attempt=0;attempt<2;attempt++) {
             mvc.perform(post("/api/v1/billing/robokassa/result")
                     .contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
@@ -156,7 +207,8 @@ class BillingCreditsIntegrationTest {
                 .andExpect(status().isOk()).andExpect(content().string("OK"+invoice));
         }
         mvc.perform(get("/api/v1/billing/credit-purchases/"+id).with(jwt().jwt(j->j.subject(user))))
-            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("succeeded"));
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("succeeded"))
+            .andExpect(jsonPath("$.testMode").value(false));
         mvc.perform(get("/api/v1/billing/credits/wallet").with(jwt().jwt(j->j.subject(user))))
             .andExpect(status().isOk()).andExpect(jsonPath("$.availableUnits").value(15600));
         mvc.perform(get("/api/v1/billing/credits/summary").with(jwt().jwt(j->j.subject(user))))
@@ -169,5 +221,9 @@ class BillingCreditsIntegrationTest {
             .andExpect(jsonPath("$.items[0].balanceAfterUnits").value(15600));
         mvc.perform(get("/api/v1/billing/credit-purchases/"+id).with(jwt().jwt(j->j.subject("other-user"))))
             .andExpect(status().isNotFound());
+    }
+    private String paymentSignature(String value) throws Exception {
+        return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
     }
 }

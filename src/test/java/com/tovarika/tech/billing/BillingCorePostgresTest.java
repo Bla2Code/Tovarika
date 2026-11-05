@@ -436,10 +436,22 @@ class BillingCorePostgresTest {
 
 
     private com.tovarika.tech.billing.payments.CreditPurchases purchases(Owner owner) {
-        var settings=new com.tovarika.tech.billing.payments.RobokassaSettings(com.tovarika.tech.billing.payments.RobokassaMode.TEST,"synthetic-shop",
-                "synthetic-test-one","synthetic-test-two",List.of(owner.id()));
+        return purchases(owner,com.tovarika.tech.billing.payments.RobokassaMode.TEST);
+    }
+    private com.tovarika.tech.billing.payments.CreditPurchases purchases(Owner owner,com.tovarika.tech.billing.payments.RobokassaMode mode) {
+        var settings=new com.tovarika.tech.billing.payments.RobokassaSettings(mode,"synthetic-shop",
+                "synthetic-test-one","synthetic-test-two",List.of(owner.id()),"synthetic-live-one","synthetic-live-two");
         return new com.tovarika.tech.billing.payments.CreditPurchases(jdbc,store,
                 new com.tovarika.tech.billing.payments.RobokassaGateway(settings),settings);
+    }
+    private org.springframework.util.LinkedMultiValueMap<String,String> paymentNotification(String id,long invoice,String sum,String password) {
+        var parameters=new org.springframework.util.LinkedMultiValueMap<String,String>();
+        parameters.set("OutSum",sum);parameters.set("InvId",Long.toString(invoice));parameters.set("Shp_purchaseId",id);
+        try {
+            parameters.set("SignatureValue",java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((sum+":"+invoice+":"+password+":Shp_purchaseId="+id).getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        } catch(java.security.NoSuchAlgorithmException failure) { throw new AssertionError(failure); }
+        return parameters;
     }
     private void grantPackage(Owner owner,String reference,long amount,Instant expiresAt) {
         tx(()->{store.grantPackage(store.lockWallet(owner),reference,amount,Instant.now().minusSeconds(3600),expiresAt);return null;});
@@ -457,8 +469,8 @@ class BillingCorePostgresTest {
         String id=ids.iterator().next();
         assertThatThrownBy(()->tx(()->purchases.create(owner.id(),"credits_400_month","same-purchase-key"))).isInstanceOf(BillingFailure.class);
         long invoice=jdbc.queryForObject("select invoice_id from billing_credit_purchases where id=?",Long.class,id);
-        var notification=new com.tovarika.tech.billing.payments.RobokassaGateway.Notification(id,invoice,99000);
-        assertThatThrownBy(()->tx(()->purchases.accept(new com.tovarika.tech.billing.payments.RobokassaGateway.Notification(id,invoice,1))))
+        var notification=paymentNotification(id,invoice,"990.000000","synthetic-test-two");
+        assertThatThrownBy(()->tx(()->purchases.accept(paymentNotification(id,invoice,"0.01","synthetic-test-two"))))
                 .isInstanceOf(BillingFailure.class);
         assertThat(read(owner).totalUnits()).isZero();
         race(10,i->{assertThat(tx(()->purchases.accept(notification))).isEqualTo("OK"+invoice);return true;});
@@ -469,6 +481,64 @@ class BillingCorePostgresTest {
         assertThat(paid.expiresAt()).isEqualTo(com.tovarika.tech.billing.payments.PackageLifetime.expiresAt(paid.paidAt()));
         assertThatThrownBy(()->purchases.get("other-user",id)).isInstanceOf(BillingFailure.class);
         assertThat(tx(()->purchases.lots(owner.id())).items()).hasSize(1);
+    }
+    @Test void ordersKeepTheirModeAcrossCheckoutRetriesAndNotifications() throws Exception {
+        var owner=owner();var test=purchases(owner);
+        var live=purchases(owner,com.tovarika.tech.billing.payments.RobokassaMode.LIVE);
+        var testOrder=tx(()->test.create(owner.id(),"credits_140_month","mode-test-key"));
+        var testBefore=jdbc.queryForMap("select * from billing_credit_purchases where id=?",testOrder.purchase().id());
+        var testRetry=tx(()->live.create(owner.id(),"credits_140_month","mode-test-key"));
+        assertThat(testRetry.purchase()).isEqualTo(testOrder.purchase());
+        assertThat(testRetry.confirmationUrl()).contains("IsTest=1");
+        assertThat(jdbc.queryForMap("select * from billing_credit_purchases where id=?",testOrder.purchase().id())).isEqualTo(testBefore);
+
+        var liveOrder=tx(()->live.create(owner.id(),"credits_140_month","mode-live-key"));
+        assertThat(liveOrder.purchase().testMode()).isFalse();
+        assertThat(liveOrder.confirmationUrl()).contains("IsTest=0");
+        var liveRetry=tx(()->test.create(owner.id(),"credits_140_month","mode-live-key"));
+        assertThat(liveRetry.purchase()).isEqualTo(liveOrder.purchase());
+        assertThat(liveRetry.confirmationUrl()).contains("IsTest=0");
+        long liveInvoice=jdbc.queryForObject("select invoice_id from billing_credit_purchases where id=?",Long.class,liveOrder.purchase().id());
+        long testInvoice=((Number)testBefore.get("invoice_id")).longValue();
+        assertThatThrownBy(()->tx(()->live.accept(paymentNotification(liveOrder.purchase().id(),liveInvoice,"990.000000","synthetic-test-two"))))
+                .isInstanceOf(BillingFailure.class);
+        assertThatThrownBy(()->tx(()->live.accept(paymentNotification(testOrder.purchase().id(),testInvoice,"990.00","synthetic-live-two"))))
+                .isInstanceOf(BillingFailure.class);
+        assertThat(read(owner).totalUnits()).isZero();
+
+        // An already-created payment can finish with its own credentials even when checkout is disabled.
+        var disabled=purchases(owner,com.tovarika.tech.billing.payments.RobokassaMode.DISABLED);
+        race(10,i->{assertThat(tx(()->disabled.accept(paymentNotification(liveOrder.purchase().id(),liveInvoice,"990.000000","synthetic-live-two"))))
+                .isEqualTo("OK"+liveInvoice);return true;});
+        assertThat(read(owner).totalUnits()).isEqualTo(14000);
+        assertThat(jdbc.queryForObject("select count(*) from billing_ledger where reference=?",Long.class,"purchase:"+liveOrder.purchase().id())).isEqualTo(1);
+        assertThat(test.get(owner.id(),testOrder.purchase().id()).status()).isEqualTo("pending");
+        assertThat(tx(()->live.accept(paymentNotification(testOrder.purchase().id(),testInvoice,"990.00","synthetic-test-two"))))
+                .isEqualTo("OK"+testInvoice);
+        assertThat(read(owner).totalUnits()).isEqualTo(28000);
+    }
+    @Test void liveConfirmationRollsBackTheGrantWhenPurchaseUpdateFails() {
+        var owner=owner();var live=purchases(owner,com.tovarika.tech.billing.payments.RobokassaMode.LIVE);
+        var checkout=tx(()->live.create(owner.id(),"credits_140_month","live-rollback-key"));
+        String id=checkout.purchase().id();
+        long invoice=jdbc.queryForObject("select invoice_id from billing_credit_purchases where id=?",Long.class,id);
+        jdbc.execute("""
+                create function billing_test_reject_paid_purchase() returns trigger language plpgsql as $$
+                begin raise exception 'Simulated purchase update failure'; end $$;
+                create trigger billing_test_reject_paid_purchase before update on billing_credit_purchases
+                for each row when (NEW.id='"""+id+"' and NEW.status='succeeded') execute function billing_test_reject_paid_purchase()");
+        try {
+            assertThatThrownBy(()->tx(()->live.accept(paymentNotification(id,invoice,"990.000000","synthetic-live-two"))))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class);
+            assertThat(read(owner).totalUnits()).isZero();
+            assertThat(live.get(owner.id(),id).status()).isEqualTo("pending");
+            assertThat(jdbc.queryForObject("select count(*) from billing_ledger where reference=?",Long.class,"purchase:"+id)).isZero();
+            assertThat(jdbc.queryForObject("select count(*) from billing_credit_lots where reference=?",Long.class,"purchase:"+id)).isZero();
+        } finally {
+            jdbc.execute("drop trigger billing_test_reject_paid_purchase on billing_credit_purchases; drop function billing_test_reject_paid_purchase()");
+        }
+        assertThat(tx(()->live.accept(paymentNotification(id,invoice,"990.000000","synthetic-live-two")))).isEqualTo("OK"+invoice);
+        assertThat(read(owner).totalUnits()).isEqualTo(14000);
     }
     @Test void expirationIsIdempotentDoesNotIncreaseUsedAndLeavesTrialUntouched() {
         var owner=owner();fund(owner,600);
@@ -831,6 +901,86 @@ class BillingCorePostgresTest {
         }
     }
 
+    @Test void liveAndReceiptMigrationsPreserveLegacyOrdersAndMoney() throws Exception {
+        String schema="live_upgrade_"+UUID.randomUUID().toString().replace("-","");
+        jdbc.execute("create schema "+schema);
+        String url=POSTGRES.getJdbcUrl()+(POSTGRES.getJdbcUrl().contains("?")?"&":"?")+"currentSchema="+schema;
+        var dataSource=new DriverManagerDataSource(url,POSTGRES.getUsername(),POSTGRES.getPassword());
+        var legacyJdbc=new JdbcTemplate(dataSource);
+        var legacyTx=new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        var legacyStore=new JdbcBillingStore(legacyJdbc);
+        String snapshotsSql="select to_jsonb(p)-'receipt_json' as snapshot from billing_credit_purchases p order by id";
+        try(var connection=dataSource.getConnection()) {
+            var db=DatabaseFactory.getInstance().findCorrectDatabaseImplementation(new JdbcConnection(connection));
+            db.setDefaultSchemaName(schema);db.setLiquibaseSchemaName(schema);
+            try(var migration=new Liquibase("db/changelog/db.changelog-master.yaml",new ClassLoaderResourceAccessor(),db)) {
+                var pending=migration.listUnrunChangeSets(new Contexts(),new LabelExpression());
+                assertThat(pending.getLast().getId()).isEqualTo("082-robokassa-receipt");
+                int liveIndex=java.util.stream.IntStream.range(0,pending.size())
+                        .filter(i->pending.get(i).getId().equals("081-robokassa-live")).findFirst().orElseThrow();
+                migration.update(liveIndex,new Contexts(),new LabelExpression());
+                String testPending=legacyTx.execute(t->legacyPurchase(legacyJdbc,legacyStore,"legacy-test-pending",true,false));
+                legacyTx.execute(t->legacyPurchase(legacyJdbc,legacyStore,"legacy-test-paid",true,true));
+                var testOrders=legacyJdbc.queryForList(snapshotsSql);
+                migration.update(1,new Contexts(),new LabelExpression());
+                assertThat(legacyJdbc.queryForList(snapshotsSql)).isEqualTo(testOrders);
+                String livePending=legacyTx.execute(t->legacyPurchase(legacyJdbc,legacyStore,"legacy-live-pending",false,false));
+                legacyTx.execute(t->legacyPurchase(legacyJdbc,legacyStore,"legacy-live-paid",false,true));
+                var orders=legacyJdbc.queryForList(snapshotsSql);
+                var wallets=legacyJdbc.queryForList("select * from billing_wallets order by id");
+                var ledger=legacyJdbc.queryForList("select * from billing_ledger order by id");
+                var lots=legacyJdbc.queryForList("select * from billing_credit_lots order by id");
+                migration.update(new Contexts(),new LabelExpression());
+                migration.update(new Contexts(),new LabelExpression());
+                assertThat(legacyJdbc.queryForList(snapshotsSql)).isEqualTo(orders);
+                assertThat(legacyJdbc.queryForList("select * from billing_wallets order by id")).isEqualTo(wallets);
+                assertThat(legacyJdbc.queryForList("select * from billing_ledger order by id")).isEqualTo(ledger);
+                assertThat(legacyJdbc.queryForList("select * from billing_credit_lots order by id")).isEqualTo(lots);
+                assertThat(legacyJdbc.queryForObject("select count(*) from billing_credit_purchases where receipt_json is not null",Long.class)).isZero();
+                assertThatThrownBy(()->legacyJdbc.update("update billing_credit_purchases set test_mode=false where id=?",testPending))
+                        .isInstanceOf(org.springframework.dao.DataAccessException.class);
+                var liveSettings=new com.tovarika.tech.billing.payments.RobokassaSettings(com.tovarika.tech.billing.payments.RobokassaMode.LIVE,
+                        "synthetic-shop","synthetic-test-one","synthetic-test-two",List.of(),"synthetic-live-one","synthetic-live-two");
+                var livePurchases=new com.tovarika.tech.billing.payments.CreditPurchases(legacyJdbc,legacyStore,
+                        new com.tovarika.tech.billing.payments.RobokassaGateway(liveSettings),liveSettings);
+                var oldTest=legacyTx.execute(t->livePurchases.create("legacy-user","credits_140_month","legacy-test-pending"));
+                var oldLive=legacyTx.execute(t->livePurchases.create("legacy-user","credits_140_month","legacy-live-pending"));
+                assertThat(oldTest.purchase().id()).isEqualTo(testPending);
+                assertThat(oldLive.purchase().id()).isEqualTo(livePending);
+                assertThat(oldTest.confirmationUrl()).contains("IsTest=1").doesNotContain("Receipt=");
+                assertThat(oldLive.confirmationUrl()).contains("IsTest=0").doesNotContain("Receipt=");
+                assertThat(legacyJdbc.queryForList(snapshotsSql)).isEqualTo(orders);
+                var fresh=legacyTx.execute(t->livePurchases.create("legacy-user","credits_140_month","new-live-key"));
+                assertThat(fresh.purchase().testMode()).isFalse();
+                assertThat(fresh.confirmationUrl()).contains("Receipt=%257B");
+                String receipt=legacyJdbc.queryForObject("select receipt_json from billing_credit_purchases where id=?",String.class,fresh.purchase().id());
+                var retry=legacyTx.execute(t->livePurchases.create("legacy-user","credits_140_month","new-live-key"));
+                assertThat(retry.confirmationUrl()).isEqualTo(fresh.confirmationUrl());
+                assertThat(legacyJdbc.queryForObject("select receipt_json from billing_credit_purchases where id=?",String.class,fresh.purchase().id())).isEqualTo(receipt);
+                assertThatThrownBy(()->legacyJdbc.update("update billing_credit_purchases set receipt_json='{}' where id=?",fresh.purchase().id()))
+                        .isInstanceOf(org.springframework.dao.DataAccessException.class);
+                long invoice=legacyJdbc.queryForObject("select invoice_id from billing_credit_purchases where id=?",Long.class,livePending);
+                String acknowledgement=legacyTx.execute(t->livePurchases.accept(paymentNotification(livePending,invoice,"990.000000","synthetic-live-two")));
+                assertThat(acknowledgement).isEqualTo("OK"+invoice);
+            }
+        } finally {
+            jdbc.execute("drop schema "+schema+" cascade");
+        }
+    }
+    private String legacyPurchase(JdbcTemplate target,JdbcBillingStore targetStore,String key,boolean testMode,boolean paid) {
+        var wallet=targetStore.lockWallet(new Owner("user","legacy-user"));
+        String id=Billing.id("pay_");
+        Instant paidAt=targetStore.now();
+        Instant expiresAt=com.tovarika.tech.billing.payments.PackageLifetime.expiresAt(paidAt);
+        target.update("""
+                insert into billing_credit_purchases(id,user_id,wallet_id,idempotency_key,package_id,
+                    price_kopecks,credit_units,test_mode,status,paid_at,expires_at)
+                values(?,'legacy-user',?,?,'credits_140_month',99000,14000,?,?,?,?)
+                """,id,wallet.id(),key,testMode,paid ? "succeeded" : "pending",
+                paid ? java.sql.Timestamp.from(paidAt) : null,paid ? java.sql.Timestamp.from(expiresAt) : null);
+        if(paid) targetStore.grantPackage(wallet,id,14000,paidAt,expiresAt);
+        return id;
+    }
     @Test void upgradeBackfillsExistingBalanceAndActiveReservationWithoutChangingMoney() throws Exception {
         String schema="legacy_"+UUID.randomUUID().toString().replace("-","");
         jdbc.execute("create schema "+schema);
@@ -842,8 +992,9 @@ class BillingCorePostgresTest {
             db.setDefaultSchemaName(schema);db.setLiquibaseSchemaName(schema);
             try(var migration=new Liquibase("db/changelog/db.changelog-master.yaml",new ClassLoaderResourceAccessor(),db)) {
                 var pending=migration.listUnrunChangeSets(new Contexts(),new LabelExpression());
-                assertThat(pending.getLast().getId()).isEqualTo("080-credit-packages");
-                migration.update(pending.size()-1,new Contexts(),new LabelExpression());
+                int packageIndex=java.util.stream.IntStream.range(0,pending.size())
+                        .filter(i->pending.get(i).getId().equals("080-credit-packages")).findFirst().orElseThrow();
+                migration.update(packageIndex,new Contexts(),new LabelExpression());
                 legacyJdbc.update("insert into billing_accounts(id) values('bac_legacy')");
                 legacyJdbc.update("insert into billing_wallets(id,account_id,total_units,reserved_units) values('wal_legacy','bac_legacy',600,400)");
                 legacyJdbc.update("insert into billing_wallet_links values('wal_legacy','wal_legacy')");
