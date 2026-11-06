@@ -1,0 +1,17 @@
+databaseChangeLog:
+  - changeSet:
+      id: 083-hidden-universal-template
+      author: tovarika
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              ALTER TABLE templates ADD COLUMN hidden boolean NOT NULL DEFAULT false;
+
+              INSERT INTO assets(id,purpose,media_type,size_bytes,width,height,storage_key,url,expires_at,created_at)
+              VALUES ('asset_tpl_universal_auto_ref','template_reference','image/webp',2178,384,512,
+                  'templates/tpl_universal_auto/78af07e8-8dff-542c-81a7-248453066ac9.webp','',NULL,CURRENT_TIMESTAMP);
+
+              INSERT INTO templates(id,name,category_id,sort_order,available,hidden,reference_asset_id,recipe_json,created_at,updated_at)
+              VALUES ('tpl_universal_auto','Адаптивный универсальный','cat_universal',40,true,true,
+                  'asset_tpl_universal_auto_ref','{"schemaVersion": 1, "adaptive": true, "scene": "Soft seamless studio background; choose its setting and colors from the product analysis visual direction, never copy reference colors", "composition": "Keep the product prominent and fully visible; adapt negative space and factual text zones to the analysis idea and selected card scenario", "lighting": "Soft diffused studio light, natural contact shadow and depth; preserve the real product color", "style": "Clean professional marketplace photography; restrained readable typography when supported by product facts", "palette": ["#F4F4F4", "#D8D8D8"], "avoid": ["fixed reference background or palette", "invented product facts, prices or benefits", "unrelated products or unsupported views", "changes to source product geometry, colors, branding or labels"]}'::jsonb,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);

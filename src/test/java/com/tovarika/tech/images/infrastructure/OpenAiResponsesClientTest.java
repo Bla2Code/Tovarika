@@ -95,6 +95,61 @@ class OpenAiResponsesClientTest {
         server.verify();
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403, 429, 500})
+    void diagnosesAnalysisHttpFailuresWithoutExposingProviderContent(int status) throws IOException {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenAiResponsesClient client = client(builder);
+        var context = new com.tovarika.tech.billing.usage.AiCallContext(
+                new com.tovarika.tech.billing.usage.AiCallContext.Identity(
+                        "analysis_jobs", "job_auth_failure", 1, null, "free_operation"), java.time.Clock.systemUTC());
+        server.expect(requestTo("https://api.openai.test/v1/responses"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(org.springframework.http.HttpStatusCode.valueOf(status))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"error\":{\"message\":\"private provider explanation\"}}"));
+
+        assertThatThrownBy(() -> client.analyze("vision-test", "job_auth_failure", new byte[]{1}, "image/png", context))
+                .isInstanceOf(OpenAiResponsesClient.AnalysisFailure.class)
+                .hasMessage("OpenAI analysis request failed").hasNoCause()
+                .satisfies(failure -> {
+                    var diagnostic = (OpenAiResponsesClient.AnalysisFailure) failure;
+                    assertThat(diagnostic.reason()).isEqualTo(OpenAiResponsesClient.AnalysisFailure.Reason.HTTP_ERROR);
+                    assertThat(diagnostic.httpStatus()).isEqualTo(status);
+                });
+        assertThat(context.calls()).singleElement().satisfies(call -> {
+            assertThat(call.httpStatus).isEqualTo(status);
+            assertThat(call.outcome).isEqualTo("error");
+            assertThat(call.finishedAt).isNotNull();
+        });
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "'{\"status\":\"incomplete\"}', INCOMPLETE_RESPONSE",
+        "'{\"status\":\"completed\",\"output\":[]}', NO_RESULT",
+        "'invalid-json', INVALID_RESPONSE"
+    })
+    void distinguishesInvalidAnalysisResponses(String body, OpenAiResponsesClient.AnalysisFailure.Reason reason) throws IOException {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenAiResponsesClient client = client(builder);
+        server.expect(requestTo("https://api.openai.test/v1/responses"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.analyze("vision-test", "job_invalid", new byte[]{1}, "image/png"))
+                .isInstanceOf(OpenAiResponsesClient.AnalysisFailure.class)
+                .hasMessage("OpenAI analysis request failed").hasNoCause()
+                .satisfies(failure -> {
+                    var diagnostic = (OpenAiResponsesClient.AnalysisFailure) failure;
+                    assertThat(diagnostic.reason()).isEqualTo(reason);
+                    assertThat(diagnostic.httpStatus()).isNull();
+                });
+        server.verify();
+    }
+
     @Test
     void sendsTwoReferencesThroughImageToolAndNormalizesRequestedRatio() throws IOException {
         RestClient.Builder builder = RestClient.builder();

@@ -17,6 +17,16 @@ public record CardSeries(JsonNode snapshot) {
 
     public String templateId() { return snapshot.path("templateId").asText(); }
     public String name() { return snapshot.path("name").asText(); }
+    public boolean hidden() { return snapshot.path("hidden").asBoolean(false); }
+    public boolean adaptive() { return snapshot.path("recipe").path("adaptive").asBoolean(false); }
+    public boolean hasVisualDirection() {
+        return !snapshot.path("recipe").path("analysisVisualDirection").asText("").isBlank();
+    }
+    public CardSeries withVisualDirection(String direction) {
+        ObjectNode copy = (ObjectNode) snapshot.deepCopy();
+        ((ObjectNode) copy.path("recipe")).put("analysisVisualDirection", direction);
+        return new CardSeries(copy);
+    }
     public String referenceId() {
         return snapshot.path("referenceAssetId").isString() ? snapshot.path("referenceAssetId").asText() : null;
     }

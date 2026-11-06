@@ -165,3 +165,7 @@ databaseChangeLog:
       file: db/changelog/changes/081-robokassa-live.yaml
   - include:
       file: db/changelog/changes/082-robokassa-receipt.yaml
+  - include:
+      file: db/changelog/changes/083-hidden-universal-template.yaml
+  - include:
+      file: db/changelog/changes/084-hidden-universal-variants.yaml

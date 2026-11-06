@@ -915,7 +915,7 @@ class BillingCorePostgresTest {
             db.setDefaultSchemaName(schema);db.setLiquibaseSchemaName(schema);
             try(var migration=new Liquibase("db/changelog/db.changelog-master.yaml",new ClassLoaderResourceAccessor(),db)) {
                 var pending=migration.listUnrunChangeSets(new Contexts(),new LabelExpression());
-                assertThat(pending.getLast().getId()).isEqualTo("082-robokassa-receipt");
+                assertThat(pending).extracting(liquibase.changelog.ChangeSet::getId).contains("082-robokassa-receipt");
                 int liveIndex=java.util.stream.IntStream.range(0,pending.size())
                         .filter(i->pending.get(i).getId().equals("081-robokassa-live")).findFirst().orElseThrow();
                 migration.update(liveIndex,new Contexts(),new LabelExpression());

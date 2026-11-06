@@ -8,7 +8,7 @@ Prompt — [CARD_PROMPTS.md](CARD_PROMPTS.md); подготовка файлов
 
 - TemplatesController/TemplateService в `src/main/java/com/tovarika/tech/templates/`:
   публичные categories/list, поиск, cursor pagination, authenticated favorites.
-  Каталог показывает available templates в available categories;
+  Каталог показывает available templates с hidden=false в available categories;
   категории без доступных шаблонов не возвращаются.
 - Фильтры: categoryId, search (1–200 символов после strip), favoriteOnly; limit 1–100,
   default 20. Cursor сортирует по category.sort_order/template.sort_order/template.id.
@@ -71,3 +71,12 @@ Prompt — [CARD_PROMPTS.md](CARD_PROMPTS.md); подготовка файлов
 - Для правки набора создаётся новая data migration, затем включается в master. Worker и
   начатая серия не перечитывают обновлённый каталог. Название, общий recipe, reference ID
   и упорядоченный набор сохраняются в project.card_series_snapshot при enqueue.
+
+## 4. Служебный универсальный шаблон
+
+`tpl_universal_auto` доступен генерации, но скрыт из list/search/favorites и не даёт
+категории видимость сам по себе. Новая колонка hidden по умолчанию false, старые шаблоны
+сохраняют поведение. В next-draft признак template.hidden позволяет UI скрыть название и
+reference; previewUrl для скрытого шаблона не выдаётся. ID остаётся техническим параметром
+обычного запроса генерации. Миграции 083/084, reference и 10 сценариев лежат в
+`assets/templates/tpl_universal_auto`. Фон и цвет reference не фиксируют оформление.

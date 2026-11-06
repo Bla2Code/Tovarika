@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TemplateService {
+    public static final String DEFAULT_TEMPLATE_ID = "tpl_universal_auto";
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
@@ -29,7 +30,7 @@ public class TemplateService {
         return jdbc.query("""
                 select c.id, c.name from template_categories c
                 where c.available = true
-                  and exists(select 1 from templates t where t.category_id = c.id and t.available = true)
+                  and exists(select 1 from templates t where t.category_id = c.id and t.available = true and t.hidden = false)
                 order by c.sort_order, c.id
                 """, (result, row) -> new TemplateCategoryView(result.getString("id"), result.getString("name")));
     }
@@ -61,7 +62,7 @@ public class TemplateService {
         }
         sql.append("""
                 from templates t join template_categories c on c.id=t.category_id
-                where t.available=true and c.available=true
+                where t.available=true and t.hidden=false and c.available=true
                 """);
         if (categoryId != null) {
             sql.append(" and t.category_id=? ");
@@ -99,7 +100,7 @@ public class TemplateService {
         if (userId == null) {
             throw new ApiFailure(401, "AUTHENTICATION_REQUIRED", "Authentication is required");
         }
-        if (jdbc.queryForList("select id from templates where id=? and available=true", String.class, templateId).isEmpty()) {
+        if (jdbc.queryForList("select id from templates where id=? and available=true and hidden=false", String.class, templateId).isEmpty()) {
             throw new ApiFailure(404, "TEMPLATE_NOT_FOUND", "Template not found");
         }
         if (favorite) {
@@ -132,7 +133,7 @@ public class TemplateService {
     @Transactional(readOnly = true)
     public Optional<String> cardSeries(String templateId) {
         return jdbc.query("""
-                select jsonb_build_object('templateId',t.id,'name',t.name,
+                select jsonb_build_object('templateId',t.id,'name',t.name,'hidden',t.hidden,
                     'referenceAssetId',t.reference_asset_id,'recipe',t.recipe_json,
                     'variants',coalesce((select jsonb_agg(jsonb_build_object(
                         'id',v.id,'position',v.position,'title',v.title,'defaultIdea',v.default_idea,

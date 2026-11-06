@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "adaptive": true,
+  "scene": "Soft seamless studio background; choose its setting and colors from the product analysis visual direction, never copy reference colors",
+  "composition": "Keep the product prominent and fully visible; adapt negative space and factual text zones to the analysis idea and selected card scenario",
+  "lighting": "Soft diffused studio light, natural contact shadow and depth; preserve the real product color",
+  "style": "Clean professional marketplace photography; restrained readable typography when supported by product facts",
+  "palette": [
+    "#F4F4F4",
+    "#D8D8D8"
+  ],
+  "avoid": [
+    "fixed reference background or palette",
+    "invented product facts, prices or benefits",
+    "unrelated products or unsupported views",
+    "changes to source product geometry, colors, branding or labels"
+  ]
+}

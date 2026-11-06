@@ -71,12 +71,15 @@ public class CardGenerationService {
             if (variant == null && idea != null) {
                 throw new ApiFailure(409, "CARD_VARIANT_UNAVAILABLE", "No prepared variant for this idea");
             }
-            recipe = series.recipe();
             reference = series.referenceId();
             if ("live".equalsIgnoreCase(openAi.mode()) && !store.hasReference(reference)) {
                 throw new ApiFailure(422, "TEMPLATE_NOT_READY", "Template reference is not configured");
             }
-            finalIdea = idea == null ? (variant == null ? null : variant.path("defaultIdea").asText()) : idea.strip();
+            finalIdea = idea == null ? defaultIdea(project, series, variant, position) : idea.strip();
+            if (series.adaptive() && !series.hasVisualDirection()) {
+                series = series.withVisualDirection(position == 1 ? finalIdea : project.analysisIdea());
+            }
+            recipe = series.recipe();
             compiledPrompt = variant == null
                     ? prompts.fromTemplate(project.description(), recipe)
                     : prompts.fromVariant(project.description(), recipe, variant.path("generationRecipe").toString(),
@@ -102,20 +105,19 @@ public class CardGenerationService {
         var project = store.readProject(projectId, userId, trialId);
         int position = project.cardCount() + 1;
         if (position > 10) return new NextCardDraft("limit_reached", position, project.defaultAspectRatio(),
-                null, null, null, null, null);
+                null, null, null, null, null, false);
         String templateId = requestedTemplateId;
         if (templateId == null) {
             templateId = project.seriesJson() != null ? CardSeries.parse(mapper, project.seriesJson()).templateId()
                     : project.firstTemplateId() != null ? project.firstTemplateId() : project.selectedTemplateId();
         }
-        if (templateId == null) return new NextCardDraft("template_required", position, project.defaultAspectRatio(),
-                null, null, null, null, null);
+        if (templateId == null) templateId = TemplateService.DEFAULT_TEMPLATE_ID;
         CardSeries series = series(project, templateId);
         JsonNode variant = series.variant(position);
         return new NextCardDraft(variant == null ? "variant_unavailable" : "ready", position,
                 project.defaultAspectRatio(), series.templateId(), series.name(), series.referenceId(),
                 variant == null ? null : variant.path("id").asText(),
-                variant == null ? null : variant.path("defaultIdea").asText());
+                defaultIdea(project, series, variant, position), series.hidden());
     }
 
     @Transactional
@@ -155,6 +157,14 @@ public class CardGenerationService {
             return catalog.withLegacyStyle(mapper, project.firstRecipe(), project.firstReference());
         }
         return catalog;
+    }
+
+    private String defaultIdea(CardGenerationStore.ProjectGenerationContext project, CardSeries series,
+            JsonNode variant, int position) {
+        if (series.adaptive() && position == 1 && project.analysisIdea() != null && !project.analysisIdea().isBlank()) {
+            return project.analysisIdea();
+        }
+        return variant == null ? null : variant.path("defaultIdea").asText();
     }
 
     private JsonNode selectVariant(CardSeries series, String variantId, int position) {

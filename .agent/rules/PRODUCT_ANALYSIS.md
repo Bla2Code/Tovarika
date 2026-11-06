@@ -40,7 +40,10 @@ AI-конфигурация/secrets — [OPENAI.md](OPENAI.md), использо
 - Server-owned vision prompt: `src/main/resources/prompts/product-analysis-v1.txt`.
   Результат на русском: title до 200 символов или null, description 1–4000, idea 1–2000.
   Описываются видимые факты основного товара без выдуманных свойств, цен/скидок/рейтингов;
-  idea задаёт визуальное оформление.
+  idea задаёт визуальное оформление для скрытого адаптивного универсального шаблона:
+  фон, палитру, композицию и мягкий студийный свет подбирают по видимому товару.
+  Цвет reference не фиксирован; товар не перекрашивается. Эта идея используется первой
+  карточкой скрытого шаблона, включая сохранённые правки пользователя.
 - Stub помечает анализ [STUB]. Live использует Structured Outputs с title/description/idea;
   это отдельный запрос от image generation. GenerationPromptBuilder сохраняет read-only
   generationPrompt анализа из title/description/idea.

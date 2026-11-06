@@ -41,7 +41,7 @@ public class CardGenerationStore {
     private ProjectGenerationContext projectContext(String projectId, String userId, String trialId, boolean lock) {
         return jdbc.query("""
                 select j.id,j.product_id,j.card_count,p.status product_status,
-                       a.description,a.revision,s.storage_key source_storage_key,s.media_type source_media_type,
+                       a.description,a.idea,a.revision,s.storage_key source_storage_key,s.media_type source_media_type,
                        j.selected_template_id,j.default_aspect_ratio,j.card_series_snapshot::text,
                        first.template_id first_template_id,first.recipe_snapshot::text first_recipe,
                        first.reference_asset_snapshot_id first_reference
@@ -52,7 +52,7 @@ public class CardGenerationStore {
                 where j.id=? and (p.owner_user_id=? or p.owner_trial_session_id=?)
                 """ + (lock ? " for update of j,p" : ""), (result, row) -> new ProjectGenerationContext(
                         result.getString("id"), result.getString("product_id"), result.getInt("card_count"),
-                        result.getString("product_status"), result.getString("description"),
+                        result.getString("product_status"), result.getString("description"), result.getString("idea"),
                         (Integer) result.getObject("revision"), result.getString("source_storage_key"),
                         result.getString("source_media_type"), result.getString("selected_template_id"),
                         result.getString("default_aspect_ratio"), result.getString("card_series_snapshot"),
@@ -297,7 +297,7 @@ public class CardGenerationStore {
 
     public record ProjectGenerationContext(
             String projectId, String productId, int cardCount, String productStatus,
-            String description, Integer analysisRevision, String sourceStorageKey, String sourceMediaType,
+            String description, String analysisIdea, Integer analysisRevision, String sourceStorageKey, String sourceMediaType,
             String selectedTemplateId, String defaultAspectRatio, String seriesJson,
             String firstTemplateId, String firstRecipe, String firstReference) {}
 

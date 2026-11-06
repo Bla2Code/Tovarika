@@ -27,6 +27,7 @@ public class CardPromptCompiler {
         if (recipe == null || !recipe.isObject() || recipe.path("schemaVersion").asInt() != 1) {
             throw new ApiFailure(422, "TEMPLATE_NOT_READY", "Template recipe is unsupported");
         }
+        if (recipe.path("adaptive").asBoolean(false)) return fromAdaptiveTemplate(productDescription, recipe);
         List<String> sections = new ArrayList<>();
         sections.add(base(productDescription));
         add(sections, "Scene", recipe.path("scene"));
@@ -91,9 +92,30 @@ public class CardPromptCompiler {
             variant.path("conditions").forEach(condition -> add(sections, "Mandatory factual condition", condition));
         }
         add(sections, "Fallback composition when evidence is insufficient", variant.path("fallbackComposition"));
-        sections.add("Final user idea (visual direction, never a source of product facts): " + idea);
+        if (!idea.equals(shared.path("analysisVisualDirection").asText())) {
+            sections.add("Final user idea (visual direction, never a source of product facts): " + idea);
+        }
         sections.add("The final user idea may override the recommended accent and arrangement. Preserve the shared style, source product identity and all factual conditions. "
                 + "Use only description and Image 1 as evidence; do not invent specifications, dimensions, materials, other views, color variants or sets.");
+        return checked(String.join("\n", sections));
+    }
+
+    private String fromAdaptiveTemplate(String description, JsonNode recipe) {
+        List<String> sections = new ArrayList<>();
+        sections.add(base(description));
+        add(sections, "Scene", recipe.path("scene"));
+        add(sections, "Composition", recipe.path("composition"));
+        add(sections, "Lighting", recipe.path("lighting"));
+        add(sections, "Visual style", recipe.path("style"));
+        add(sections, "Shared series visual direction (not product facts)", recipe.path("analysisVisualDirection"));
+        sections.add("Image 1 is the source product: preserve its identity, geometry, real colors, labels and branding.");
+        sections.add("Image 2 is only a soft studio light and depth reference. Its background, blue color and palette are NOT mandatory. "
+                + "Choose the background and colors from the analysis visual direction and source product; never recolor the product. "
+                + "Keep this chosen background, palette and lighting consistent across the series. Follow the selected scenario for composition.");
+        sections.add("Add readable overlay text only from factual description and Image 1, in the language of the description. "
+                + "Omit unsupported text; do not invent facts, prices, benefits, other products or unseen views.");
+        sections.add(layout());
+        sections.add("Return one finished marketplace product-card image.");
         return checked(String.join("\n", sections));
     }
 

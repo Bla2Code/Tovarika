@@ -8,7 +8,9 @@
 - ProjectsController/ProjectService в `src/main/java/com/tovarika/tech/project/`
   реализуют создание, чтение, список, PATCH/DELETE. Владение наследуется от Product.
 - Проект создаётся для своего Product даже до готовности анализа. Defaults:
-  name из Product, defaultAspectRatio=3:4; максимум один текущий проект на Product.
+  name из Product, defaultAspectRatio=3:4, selectedTemplateId=tpl_universal_auto, если шаблон доступен;
+  максимум один текущий проект на Product. Старые проекты без выбора используют служебный
+  шаблон при чтении next-draft, без записи. Существующие серии и готовые Card не меняются.
 - Операции отдельного проекта принимают Bearer/trial; список требует Bearer.
   Чужой/отсутствующий проект одинаково даёт 404 PROJECT_NOT_FOUND.
 - PATCH частично обновляет name/selectedTemplateId/defaultAspectRatio. Пустой объект,

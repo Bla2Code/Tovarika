@@ -43,15 +43,17 @@ class ProjectService {
             jdbc.update(
                     """
                     insert into projects
-                        (id, product_id, name, default_aspect_ratio, card_count, created_at, updated_at)
-                    values (?, ?, ?, ?, 0, ?, ?)
+                        (id, product_id, name, default_aspect_ratio, card_count, created_at, updated_at, selected_template_id)
+                    values (?, ?, ?, ?, 0, ?, ?,
+                        (select id from templates where id=? and available=true))
                     """,
                     projectId,
                     productId,
                     name,
                     aspectRatio,
                     Timestamp.from(now),
-                    Timestamp.from(now));
+                    Timestamp.from(now),
+                    com.tovarika.tech.templates.TemplateService.DEFAULT_TEMPLATE_ID);
         } catch (DuplicateKeyException conflict) {
             throw ProjectException.conflict();
         }

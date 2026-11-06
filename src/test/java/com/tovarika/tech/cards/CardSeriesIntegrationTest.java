@@ -74,6 +74,85 @@ class CardSeriesIntegrationTest {
         jdbc.update("delete from templates where id='tpl_series_other'");
     }
 
+    @Test void automaticDraftUsesCurrentAnalysisAndRemainsHiddenFromCatalogAndFavorites() throws Exception {
+        jdbc.update("update projects set selected_template_id=null where id='prj_series'");
+        jdbc.update("update product_analyses set idea='Товар на тёплом песочном фоне',revision=2 where product_id='prd_series'");
+        mvc.perform(get(path+"/next-draft").header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("ready"))
+                .andExpect(jsonPath("$.template.id").value("tpl_universal_auto"))
+                .andExpect(jsonPath("$.template.hidden").value(true))
+                .andExpect(jsonPath("$.template.previewUrl").doesNotExist())
+                .andExpect(jsonPath("$.variantId").value("tpl_universal_auto_v01"))
+                .andExpect(jsonPath("$.defaultIdea").value("Товар на тёплом песочном фоне"));
+        assertThat(count()).isZero();
+        assertThat(jdbc.queryForObject("select card_series_snapshot::text from projects where id='prj_series'",String.class)).isNull();
+        assertThat(jdbc.queryForObject("select selected_template_id from projects where id='prj_series'",String.class)).isNull();
+        mvc.perform(get("/api/v1/templates").param("search","Адаптивный универсальный"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
+        var templates=context.getBean(com.tovarika.tech.templates.TemplateService.class);
+        assertCode(() -> templates.setFavorite("usr_series","tpl_universal_auto",true),"TEMPLATE_NOT_FOUND");
+        jdbc.update("delete from projects where id='prj_series'");
+        mvc.perform(post("/api/v1/projects").header("Authorization","Bearer "+token)
+                        .contentType("application/json").content("{\"productId\":\"prd_series\"}"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.selectedTemplateId").value("tpl_universal_auto"));
+    }
+
+    @Test void automaticSeriesFreezesFirstIdeaAndUsesOwnScenariosAfterAnalysisChanges() {
+        String direction="Товар на тёплом песочном фоне";
+        jdbc.update("update product_analyses set idea=?,revision=2 where product_id='prd_series'",direction);
+        var first=cards.start("prj_series","auto-first-key","usr_series",null,"tpl_universal_auto",null,"3:4",null,null);
+        String prompt=jdbc.queryForObject("select prompt from cards where id=?",String.class,first.cardId());
+        assertThat(prompt).contains(direction,"NOT mandatory","Белая кружка").doesNotContain("Palette:","analysis prompt unused");
+        assertThat(jdbc.queryForObject("select idea from cards where id=?",String.class,first.cardId())).isEqualTo(direction);
+        assertThat(jdbc.queryForObject("select analysis_revision from cards where id=?",Integer.class,first.cardId())).isEqualTo(2);
+        assertThat(cards.start("prj_series","auto-first-key","usr_series",null,"tpl_universal_auto",null,"3:4",null,null).id()).isEqualTo(first.id());
+        finish(first);
+        jdbc.update("update product_analyses set idea='Новый фиолетовый фон',revision=3 where product_id='prd_series'");
+        var draft=cards.nextDraft("prj_series",null,"usr_series",null);
+        assertThat(draft.hidden()).isTrue();
+        assertThat(draft.variantId()).isEqualTo("tpl_universal_auto_v02");
+        assertThat(draft.defaultIdea()).doesNotContain(direction,"фиолетовый");
+        var second=cards.start("prj_series","auto-second-key","usr_series",null,draft.templateId(),null,"4:5",draft.variantId(),draft.defaultIdea());
+        assertThat(jdbc.queryForObject("select prompt from cards where id=?",String.class,second.cardId()))
+                .contains(direction,draft.defaultIdea()).doesNotContain("Новый фиолетовый фон","Palette:");
+        assertThat(jdbc.queryForObject("select reference_asset_snapshot_id from cards where id=?",String.class,second.cardId()))
+                .isEqualTo("asset_tpl_universal_auto_ref");
+        finish(second);
+        var publicDraft=cards.nextDraft("prj_series","tpl_fashion_hero","usr_series",null);
+        assertThat(publicDraft.hidden()).isFalse();
+        var third=cards.start("prj_series","public-after-auto","usr_series",null,publicDraft.templateId(),null,"3:4",publicDraft.variantId(),publicDraft.defaultIdea());
+        assertThat(jdbc.queryForObject("select prompt from cards where id=?",String.class,third.cardId()))
+                .contains("Palette:").doesNotContain(direction,"NOT mandatory");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"1:1,1024,1024", "3:4,1152,1536", "4:5,1024,1280", "16:9,1536,864"})
+    void automaticTemplateGeneratesAllRatiosAndKeepsTenScenarios(String ratio, int width, int height) {
+        assertThat(jdbc.queryForObject("select count(*) from template_card_variants where template_id='tpl_universal_auto'",Integer.class)).isEqualTo(10);
+        var first=cards.start("prj_series","auto-worker-first","usr_series",null,"tpl_universal_auto",null,ratio,null,null);
+        assertThat(worker.runOnce()).isTrue();
+        var card=cards.getCard("prj_series",first.cardId(),"usr_series",null);
+        assertThat(card.status()).isEqualTo("ready");
+        assertThat(card.image().width()).isEqualTo(width);
+        assertThat(card.image().height()).isEqualTo(height);
+        for (int position=2; position<=10; position++) {
+            var draft=cards.nextDraft("prj_series",null,"usr_series",null);
+            assertThat(draft.state()).isEqualTo("ready");
+            assertThat(draft.hidden()).isTrue();
+            assertThat(draft.position()).isEqualTo(position);
+            finish(cards.start("prj_series","auto-worker-next-"+position,"usr_series",null,draft.templateId(),null,ratio,draft.variantId(),null));
+        }
+        assertThat(cards.nextDraft("prj_series",null,"usr_series",null).state()).isEqualTo("limit_reached");
+    }
+
+    @Test void editedFirstAutomaticIdeaBecomesSeriesDirection() {
+        var first=cards.start("prj_series","edited-auto-first","usr_series",null,"tpl_universal_auto",null,"1:1","tpl_universal_auto_v01","Мой светлый персиковый фон");
+        assertThat(jdbc.queryForObject("select card_series_snapshot->'recipe'->>'analysisVisualDirection' from projects where id='prj_series'",String.class))
+                .isEqualTo("Мой светлый персиковый фон");
+        assertThat(jdbc.queryForObject("select prompt from cards where id=?",String.class,first.cardId()))
+                .contains("Мой светлый персиковый фон").doesNotContain("analysis idea unused");
+    }
+
     @Test void draftIsReadOnlyAndHttpIdeaReachesCompilerAndCard() throws Exception {
         assertThat(jdbc.queryForObject("select count(*) from template_card_variants where template_id='tpl_fashion_hero'",Integer.class)).isEqualTo(10);
         mvc.perform(get(path+"/next-draft").header("Authorization","Bearer "+token))

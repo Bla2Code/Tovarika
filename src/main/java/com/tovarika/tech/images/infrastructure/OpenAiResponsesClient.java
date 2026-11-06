@@ -36,6 +36,19 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 @ConditionalOnProperty(name = "tovarika.ai.openai.mode", havingValue = "live")
 public class OpenAiResponsesClient implements OpenAiClient {
+    /** Safe diagnostics only: never retain the provider body, headers or original exception. */
+    public static final class AnalysisFailure extends IllegalStateException {
+        public enum Reason { HTTP_ERROR, TRANSPORT_ERROR, INVALID_RESPONSE, INCOMPLETE_RESPONSE, REFUSAL, NO_RESULT, INVALID_RESULT }
+        private final Reason reason;
+        private final Integer httpStatus;
+        private AnalysisFailure(Reason reason, Integer httpStatus) {
+            super("OpenAI analysis request failed");
+            this.reason = reason;
+            this.httpStatus = httpStatus;
+        }
+        public Reason reason() { return reason; }
+        public Integer httpStatus() { return httpStatus; }
+    }
     /** Only fixed diagnostic categories leave the provider boundary; response text stays private. */
     public static final class ImageEditFailure extends IllegalStateException {
         public enum Reason { HTTP_ERROR, TRANSPORT_ERROR, INVALID_RESPONSE, INCOMPLETE_RESPONSE, NO_IMAGE_RESULT, INVALID_IMAGE_RESULT }
@@ -102,9 +115,21 @@ public class OpenAiResponsesClient implements OpenAiClient {
             var result=parse(response);
             if(call!=null) call.success();
             return result;
-        } catch (RestClientException | JacksonException | IllegalArgumentException failure) {
+        } catch (RestClientResponseException failure) {
             if(call!=null) call.failure(failure);
-            throw new IllegalStateException("OpenAI analysis request failed");
+            throw new AnalysisFailure(AnalysisFailure.Reason.HTTP_ERROR, failure.getStatusCode().value());
+        } catch (RestClientException failure) {
+            if(call!=null) call.failure(failure);
+            throw new AnalysisFailure(AnalysisFailure.Reason.TRANSPORT_ERROR, null);
+        } catch (JacksonException failure) {
+            if(call!=null) call.failure(failure);
+            throw new AnalysisFailure(AnalysisFailure.Reason.INVALID_RESPONSE, null);
+        } catch (IllegalArgumentException failure) {
+            if(call!=null) call.failure(failure);
+            throw new AnalysisFailure(AnalysisFailure.Reason.INVALID_RESULT, null);
+        } catch (AnalysisFailure failure) {
+            if(call!=null) call.failure(failure);
+            throw failure;
         } finally { if(call!=null) context.end(call); }
     }
 
@@ -299,7 +324,7 @@ public class OpenAiResponsesClient implements OpenAiClient {
 
     private AnalysisResult parse(JsonNode response) throws JacksonException {
         if (response == null || !"completed".equals(response.path("status").asText())) {
-            throw new IllegalArgumentException("OpenAI response is incomplete");
+            throw new AnalysisFailure(AnalysisFailure.Reason.INCOMPLETE_RESPONSE, null);
         }
         String output = null;
         JsonNode items = response.path("output");
@@ -309,7 +334,7 @@ public class OpenAiResponsesClient implements OpenAiClient {
                 if (!"message".equals(item.path("type").asText()) || !contents.isArray()) continue;
                 for (JsonNode content : contents) {
                     if ("refusal".equals(content.path("type").asText())) {
-                        throw new IllegalArgumentException("OpenAI refused the analysis");
+                        throw new AnalysisFailure(AnalysisFailure.Reason.REFUSAL, null);
                     }
                     if ("output_text".equals(content.path("type").asText()) && content.path("text").isString()) {
                         output = content.path("text").asText();
@@ -320,7 +345,7 @@ public class OpenAiResponsesClient implements OpenAiClient {
             }
         }
         if (output == null || output.isBlank()) {
-            throw new IllegalArgumentException("OpenAI response has no structured output");
+            throw new AnalysisFailure(AnalysisFailure.Reason.NO_RESULT, null);
         }
         JsonNode result = mapper.readTree(output);
         if (result == null || !result.isObject()

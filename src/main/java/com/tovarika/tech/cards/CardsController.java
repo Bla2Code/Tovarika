@@ -44,8 +44,8 @@ public class CardsController implements CardsApi {
         var dto = new NextCardDraftDto(NextCardDraftDto.StateEnum.fromValue(draft.state()), draft.position(), 10,
                 AspectRatioDto.fromValue(draft.aspectRatio()), java.util.List.of(AspectRatioDto.values()));
         if (draft.templateId() != null) {
-            var template = new CardDraftTemplateDto(draft.templateId(), draft.templateName());
-            if (draft.referenceId() != null) template.previewUrl(URI.create(links.create(draft.referenceId()).url()));
+            var template = new CardDraftTemplateDto(draft.templateId(), draft.templateName()).hidden(draft.hidden());
+            if (!draft.hidden() && draft.referenceId() != null) template.previewUrl(URI.create(links.create(draft.referenceId()).url()));
             dto.template(template);
         }
         dto.variantId(draft.variantId()).defaultIdea(draft.defaultIdea());

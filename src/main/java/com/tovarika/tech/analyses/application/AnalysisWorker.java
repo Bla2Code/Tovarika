@@ -1,16 +1,20 @@
 package com.tovarika.tech.analyses.application;
 
 import com.tovarika.tech.billing.usage.AiUsageService;
+import com.tovarika.tech.images.infrastructure.OpenAiResponsesClient.AnalysisFailure;
 
 import com.tovarika.tech.products.application.ProductStorage;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class AnalysisWorker {
+    private static final Logger log = LoggerFactory.getLogger(AnalysisWorker.class);
     private final AnalysisStore store;
     private final AnalysisProvider provider;
     private final ProductStorage storage;
@@ -39,6 +43,10 @@ public class AnalysisWorker {
             boolean applied=Boolean.TRUE.equals(transactions.execute(tx->store.complete(job,result,prompt,clock.instant())));
             outcome=applied?"completed":"stale";
         } catch (RuntimeException failure) {
+            if (failure instanceof AnalysisFailure providerFailure)
+                log.warn("Product analysis failed: job={}, reason={}, providerStatus={}",
+                        job.id(), providerFailure.reason(), providerFailure.httpStatus());
+            else log.warn("Product analysis failed: job={}, reason=INTERNAL_ERROR", job.id());
             // All provider/storage messages may contain secrets. Persist only the stable public failure category.
             boolean applied=Boolean.TRUE.equals(transactions.execute(tx->store.fail(job,clock.instant())));
             outcome=applied?"failed":"stale";

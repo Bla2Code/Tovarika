@@ -11,7 +11,7 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md),
 2. Запустить `POST /api/v1/products/{productId}/analysis`, опрашивать job,
    получить/проверить description ([PRODUCT_ANALYSIS.md](PRODUCT_ANALYSIS.md)).
 3. Создать проект для Product; это допустимо и до завершения анализа ([PROJECTS.md](PROJECTS.md)).
-4. Прочитать `GET /api/v1/projects/{projectId}/cards/next-draft` и выбрать шаблон/идею либо написать пользовательский prompt ([TEMPLATES.md](TEMPLATES.md)).
+4. Прочитать `GET /api/v1/projects/{projectId}/cards/next-draft`: при отсутствии выбора он возвращает скрытый адаптивный шаблон и идею анализа для первой позиции. Можно создать карточку сразу, выбрать публичный шаблон либо написать пользовательский prompt ([TEMPLATES.md](TEMPLATES.md)).
 5. `POST /api/v1/projects/{projectId}/cards` возвращает `202`, jobId, target Card
    и `pollAfterMs=1000`; HTTP-запрос не ждёт AI.
 6. Опрашивать `GET /api/v1/jobs/{id}`; после completed читать Card через
@@ -29,7 +29,8 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md),
 - Обязателен `Idempotency-Key`: `[A-Za-z0-9._:-]{8,128}`. Контракт требует ровно один
   templateId/prompt и явный aspectRatio: `1:1`, `3:4`, `4:5`, `16:9`.
 - Для шаблона передаются variantId из next-draft и необязательная idea (до 2000 символов).
-  Отсутствие идеи использует defaultIdea; явно пустая/пробельная идея отклоняется.
+  Отсутствие идеи использует defaultIdea; для первой карточки скрытого адаптивного шаблона — актуальную идею анализа.
+  Явно пустая/пробельная идея отклоняется.
   templateId и технический prompt одновременно запрещены. На первой позиции сохранена
   совместимость с templateId без variantId; шаблон без сценариев допускает старую первую карточку.
 - Транзакция блокирует владельца и проверяет ownership; replay в owner_scope и converted
@@ -119,7 +120,8 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md),
   карточки не пересобираются. Для изменения готового bitmap — [IMAGE_EDITING.md](IMAGE_EDITING.md).
 
 - GET next-draft только читает (repeatable read, ownership, no-store): state ready,
-  limit_reached, variant_unavailable или template_required; поддерживаются все четыре ratio.
+  limit_reached или variant_unavailable; отсутствие выбранного стиля разрешается как tpl_universal_auto.
+  template_required сохранён в контракте для совместимости; поддерживаются все четыре ratio.
   Параметр templateId меняет стиль формы без PATCH. Recipe/prompt/storage key не выдаются.
 - variantId проверяется по snapshot и текущей позиции: чужой ID — CARD_VARIANT_INVALID,
   прежняя/другая позиция — CARD_DRAFT_STALE с требованием обновить форму; отсутствие
@@ -139,3 +141,8 @@ TOVARIKA_UI_E2E=true TOVARIKA_UI_DIRECTORY=/path/to/TovaricaUI ./gradlew test --
 Проверка запускает UI на localhost:5175, создаёт trial Product, анализ и первые две Card,
 проверяет отмену, сохранение идеи/ratio, polling и reload. Без флага cross-repository тест
 пропускается. Живое качество AI и применимость деталей проверяются отдельно по плану серии.
+
+После проверки анализа UI сначала открывает каталог стилей. В нём доступны выбор публичного
+шаблона и явное действие «Без стиля», которое выбирает tpl_universal_auto
+даже при ранее выбранном публичном стиле. Оба действия открывают форму создания;
+переход сам по себе не запускает генерацию.
