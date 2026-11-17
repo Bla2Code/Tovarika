@@ -1,6 +1,7 @@
 package com.tovarika.tech.cards.editing.application;
 
 import com.tovarika.tech.billing.usage.AiUsageService;
+import com.tovarika.tech.shared.application.JobProgress;
 
 import com.tovarika.tech.cards.editing.domain.ImageEdit;
 import com.tovarika.tech.products.application.ProductStorage;
@@ -38,9 +39,13 @@ public class CardImageEditingWorker {
             recovery.check(job.attempt(),job.createdAt());
             var source=store.source(job);
             var edit=mapper.readValue(job.payload(),ImageEdit.class);
-            var result=processor.process(storage.read(source.storageKey()),edit,context);
+            var input=storage.read(source.storageKey());
+            store.updateProgress(job,JobProgress.INPUT_READY);
+            var result=processor.process(input,edit,context);
+            store.updateProgress(job,JobProgress.RESULT_READY);
             String id="asset_"+UUID.randomUUID().toString().replace("-","");key="cards/"+id;
             storage.put(key,result.bytes(),"image/png");
+            store.updateProgress(job,JobProgress.READY_TO_COMMIT);
             var output=new ImageEditingStore.Output(id,key,result.bytes().length,result.width(),result.height(),result.hasAlpha());
             boolean applied=Boolean.TRUE.equals(transactions.execute(tx->store.complete(job,output,clock.instant(),result.aiCalled())));
             if(!applied) delete(key);

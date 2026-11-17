@@ -1,6 +1,7 @@
 package com.tovarika.tech.analyses.application;
 
 import com.tovarika.tech.billing.usage.AiUsageService;
+import com.tovarika.tech.shared.application.JobProgress;
 import com.tovarika.tech.images.infrastructure.OpenAiResponsesClient.AnalysisFailure;
 
 import com.tovarika.tech.products.application.ProductStorage;
@@ -38,8 +39,12 @@ public class AnalysisWorker {
         try (var lease=recovery.start("analysis_jobs",job.id(),job.attempt())) {
             if (job.attempt()>3) throw new IllegalStateException("Recovery attempts exhausted");
             var source=store.source(job.productId());
-            var result=provider.analyze(job.id(),storage.read(source.storageKey()),source.mediaType(),context);
+            var input=storage.read(source.storageKey());
+            store.updateProgress(job,JobProgress.INPUT_READY);
+            var result=provider.analyze(job.id(),input,source.mediaType(),context);
+            store.updateProgress(job,JobProgress.RESULT_READY);
             var prompt=prompts.build(result);
+            store.updateProgress(job,JobProgress.READY_TO_COMMIT);
             boolean applied=Boolean.TRUE.equals(transactions.execute(tx->store.complete(job,result,prompt,clock.instant())));
             outcome=applied?"completed":"stale";
         } catch (RuntimeException failure) {

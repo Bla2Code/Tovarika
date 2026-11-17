@@ -4,6 +4,7 @@ import com.tovarika.api.publicapi.JobsApi;
 import com.tovarika.api.publicapi.model.*;
 import com.tovarika.tech.analyses.application.AnalysisService;
 import com.tovarika.tech.cards.CardGenerationService;
+import com.tovarika.tech.shared.application.JobProgress;
 import com.tovarika.tech.trial.api.WorkspaceIdentityResolver;
 import java.time.ZoneOffset;
 import org.springframework.http.ResponseEntity;
@@ -43,7 +44,7 @@ public class JobsController implements JobsApi {
                     job.createdAt().atOffset(ZoneOffset.UTC));
             dto.baseVersionId(job.baseVersionId());
             dto.billing(billing.snapshot(job.id()));
-            dto.progress(switch(job.status()) {case "queued"->0;case "processing"->10;case "completed"->100;default->null;});
+            dto.progress(JobProgress.visible(job.status(),job.progress()));
             if(job.startedAt()!=null) dto.startedAt(job.startedAt().atOffset(ZoneOffset.UTC));
             if(job.finishedAt()!=null) dto.finishedAt(job.finishedAt().atOffset(ZoneOffset.UTC));
             if(job.resultVersionId()!=null) dto.result(new ImageJobResultDto(job.resultVersionId(),job.resultAssetId(),job.resultRevision()));
@@ -58,7 +59,7 @@ public class JobsController implements JobsApi {
                     new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.CARD,job.cardId()),1000,
                     job.createdAt().atOffset(ZoneOffset.UTC));
             dto.billing(billing.snapshot(job.id()));
-            dto.progress(switch(job.status()) { case "queued" -> 0; case "processing" -> 10; case "completed" -> 100; default -> null; });
+            dto.progress(JobProgress.visible(job.status(),job.progress()));
             if (job.startedAt()!=null) dto.startedAt(job.startedAt().atOffset(ZoneOffset.UTC));
             if (job.finishedAt()!=null) dto.finishedAt(job.finishedAt().atOffset(ZoneOffset.UTC));
             if (job.status().equals("failed")) dto.failure(new JobFailureDto(
@@ -70,7 +71,7 @@ public class JobsController implements JobsApi {
         var dto=new JobDto(job.id(),JobTypeDto.PRODUCT_ANALYSIS,JobStatusDto.fromValue(job.status()),
                 new ResourceReferenceDto(ResourceReferenceDto.TypeEnum.PRODUCT_ANALYSIS,job.analysisId()),1000,
                 job.createdAt().atOffset(ZoneOffset.UTC));
-        dto.progress(switch(job.status()) { case "queued" -> 0; case "processing" -> 10; case "completed" -> 100; default -> null; });
+        dto.progress(JobProgress.visible(job.status(),job.progress()));
         if (job.startedAt()!=null) dto.startedAt(job.startedAt().atOffset(ZoneOffset.UTC));
         if (job.finishedAt()!=null) dto.finishedAt(job.finishedAt().atOffset(ZoneOffset.UTC));
         if (job.status().equals("failed")) dto.failure(new JobFailureDto(ErrorCodeDto.ANALYSIS_FAILED,"Product analysis failed","req_"+job.id()));

@@ -11,4 +11,5 @@ public record CardGenerationJob(
         int attempt,
         Instant createdAt,
         Instant startedAt,
-        Instant finishedAt) {}
+        Instant finishedAt,
+        int progress) {}

@@ -1,6 +1,7 @@
 package com.tovarika.tech.cards;
 
 import com.tovarika.tech.billing.usage.AiUsageService;
+import com.tovarika.tech.shared.application.JobProgress;
 
 import com.tovarika.tech.images.application.GenerationRequest;
 import com.tovarika.tech.images.application.ImageGenerationService;
@@ -56,11 +57,14 @@ public class CardGenerationWorker {
                 inputImages.add(new GenerationRequest.InputImage(reference, mediaType, "template_reference"));
             }
             int[] size = dimensions(source.aspectRatio());
+            store.updateProgress(job, JobProgress.INPUT_READY);
             var generated = images.generate("chatgpt",
                     new GenerationRequest(source.prompt(), inputImages, size[0], size[1]),context);
+            store.updateProgress(job, JobProgress.RESULT_READY);
             String assetId = id("asset_");
             generatedKey = "cards/" + assetId;
             storage.put(generatedKey, generated.bytes(), generated.mediaType());
+            store.updateProgress(job, JobProgress.READY_TO_COMMIT);
             var asset = new CardGenerationStore.GeneratedAsset(assetId, generatedKey, generated.mediaType(),
                     generated.bytes().length, generated.width(), generated.height());
             boolean applied = Boolean.TRUE.equals(

@@ -47,6 +47,10 @@ AI-конфигурация/secrets — [OPENAI.md](OPENAI.md), использо
 - Stub помечает анализ [STUB]. Live использует Structured Outputs с title/description/idea;
   это отдельный запрос от image generation. GenerationPromptBuilder сохраняет read-only
   generationPrompt анализа из title/description/idea.
+- Условный Job.progress хранится в analysis_jobs (миграция 086): queued 0, claim 10,
+  исходник прочитан 25, ответ AI получен 80, итоговый prompt собран 95, атомарный success 100.
+  Значение не растёт по таймеру, не уменьшается при recovery; обновления fenced по
+  processing/attempt. Failed не публикует процент. Legacy completed также возвращает 100.
 - Фото, generation prompt и provider body не логируются и не входят в JobFailure.
   Метрики `tovarika.analysis.latency`/`tovarika.analysis.operations` имеют только ограниченный outcome.
 

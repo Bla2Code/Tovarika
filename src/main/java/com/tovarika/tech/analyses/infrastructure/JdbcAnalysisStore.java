@@ -3,6 +3,7 @@ package com.tovarika.tech.analyses.infrastructure;
 import com.tovarika.tech.analyses.application.AnalysisStore;
 import com.tovarika.tech.analyses.domain.*;
 import com.tovarika.tech.shared.application.ApiFailure;
+import com.tovarika.tech.shared.application.JobProgress;
 import java.sql.*;
 import java.time.Instant;
 import java.util.*;
@@ -58,6 +59,13 @@ public class JdbcAnalysisStore implements AnalysisStore {
                     order by created_at for update skip locked limit 1) returning *
                 """,(r,n)->job(r),Timestamp.from(leaseUntil),Timestamp.from(now),Timestamp.from(now)).stream().findFirst();
     }
+    public void updateProgress(AnalysisJob job, int progress) {
+        JobProgress.requireIntermediate(progress);
+        jdbc.update("""
+                update analysis_jobs set progress=greatest(progress,?)
+                where id=? and status='processing' and attempt=?
+                """, progress, job.id(), job.attempt());
+    }
     public Source source(String id) {
         return jdbc.queryForObject("select a.storage_key,a.media_type from assets a join products p on p.source_asset_id=a.id where p.id=?",
                 (r,n)->new Source(r.getString("storage_key"),r.getString("media_type")),id);
@@ -97,12 +105,12 @@ public class JdbcAnalysisStore implements AnalysisStore {
                 """, (r,n)->analysis(r), title,description,idea,prompt,Timestamp.from(now),productId);
     }
     private void terminal(AnalysisJob j,String state,String productState,Instant now) {
-        jdbc.update("update analysis_jobs set status=?,finished_at=?,lease_until=null where id=?",state,Timestamp.from(now),j.id());
+        jdbc.update("update analysis_jobs set status=?,finished_at=?,lease_until=null,progress=case when ?='completed' then 100 else progress end where id=?",state,Timestamp.from(now),state,j.id());
         jdbc.update("update products set status=?,updated_at=? where id=?",productState,Timestamp.from(now),j.productId());
     }
     private AnalysisJob job(ResultSet r) throws SQLException {
         return new AnalysisJob(r.getString("id"),r.getString("product_id"),r.getString("analysis_id"),r.getString("status"),
-                r.getInt("attempt"),r.getTimestamp("created_at").toInstant(),instant(r,"started_at"),instant(r,"finished_at"));
+                r.getInt("attempt"),r.getTimestamp("created_at").toInstant(),instant(r,"started_at"),instant(r,"finished_at"),r.getInt("progress"));
     }
     private ProductAnalysisView analysis(ResultSet r) throws SQLException {
         return new ProductAnalysisView(r.getString("id"),r.getString("product_id"),r.getString("title"),

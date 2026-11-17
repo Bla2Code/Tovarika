@@ -11,6 +11,7 @@ public interface AnalysisStore {
     void enqueue(AnalysisJob job, String scope, String key);
     Optional<AnalysisJob> ownedJob(String jobId, String userId, String trialId);
     Optional<AnalysisJob> claim(Instant now, Instant leaseUntil);
+    void updateProgress(AnalysisJob job, int progress);
     Source source(String productId);
     boolean complete(AnalysisJob job, AnalysisResult result, String prompt, Instant now);
     boolean fail(AnalysisJob job, Instant now);

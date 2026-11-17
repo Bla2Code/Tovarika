@@ -70,6 +70,30 @@ class CardImageEditingIntegrationTest {
     }
     @AfterEach void cleanup(){storage.failReads=false;jdbc.execute("truncate projects,cards,project_jobs cascade");}
 
+    @Test void editProgressSurvivesRecoveryAndFailureNeverReportsCompletion() throws Exception {
+        String id=start("edit-progress",entire);
+        var first=tx.execute(t->editStore.claim(Instant.now()).orElseThrow());
+        editStore.updateProgress(first,80);
+        editStore.updateProgress(first,25);
+        jdbc.update("update project_jobs set lease_until=now()-interval '1 second' where id=?",id);
+        var current=tx.execute(t->editStore.claim(Instant.now()).orElseThrow());
+        editStore.updateProgress(first,95);
+        editStore.updateProgress(current,25);
+        mvc.perform(get("/api/v1/jobs/"+id).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.progress").value(80));
+        editStore.updateProgress(current,95);
+        mvc.perform(get("/api/v1/jobs/"+id).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("processing"))
+                .andExpect(jsonPath("$.progress").value(95));
+        tx.executeWithoutResult(t->editStore.fail(current,"GENERATION_FAILED",Instant.now()));
+        editStore.updateProgress(current,25);
+        mvc.perform(get("/api/v1/jobs/"+id).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("failed"))
+                .andExpect(jsonPath("$.progress").doesNotExist());
+        assertThat(edits.findJob(id,"usr_edit",null).orElseThrow().progress()).isEqualTo(95);
+        assertThat(current().status()).isEqualTo("ready");
+    }
+
     @Test void billingAdmissionIsDisabledByDefault() {
         var job=complete("default-gate-edit",entire);
         assertThat(jdbc.queryForObject("select count(*) from project_jobs where billing_operation_id is not null",Integer.class)).isZero();

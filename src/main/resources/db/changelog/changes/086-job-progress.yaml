@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 086-job-progress
+      author: codex
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE analysis_jobs ADD COLUMN progress integer NOT NULL DEFAULT 0
+                  CONSTRAINT ck_analysis_jobs_progress CHECK (progress BETWEEN 0 AND 100);
+              ALTER TABLE project_jobs ADD COLUMN progress integer NOT NULL DEFAULT 0
+                  CONSTRAINT ck_project_jobs_progress CHECK (progress BETWEEN 0 AND 100);

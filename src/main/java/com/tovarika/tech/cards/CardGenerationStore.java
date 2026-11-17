@@ -1,5 +1,6 @@
 package com.tovarika.tech.cards;
 
+import com.tovarika.tech.shared.application.JobProgress;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -172,6 +173,13 @@ public class CardGenerationStore {
                 .flatMap(id -> jdbc.query("select * from project_jobs where id=?",this::mapJob,id).stream().findFirst());
     }
 
+    public void updateProgress(CardGenerationJob job, int progress) {
+        JobProgress.requireIntermediate(progress);
+        jdbc.update("""
+                update project_jobs set progress=greatest(progress,?)
+                where id=? and status='processing' and attempt=?
+                """, progress, job.id(), job.attempt());
+    }
     public GenerationSource source(CardGenerationJob job) {
         return jdbc.queryForObject("""
                 select c.prompt,c.aspect_ratio,c.template_id,
@@ -211,7 +219,7 @@ public class CardGenerationStore {
                     updated_at=?,error_code=null where id=?
                 """,asset.id(),versionId,Timestamp.from(now),job.cardId());
         jdbc.update("""
-                update project_jobs set status='completed',finished_at=?,lease_until=null,updated_at=? where id=?
+                update project_jobs set status='completed',progress=100,finished_at=?,lease_until=null,updated_at=? where id=?
                 """, Timestamp.from(now), Timestamp.from(now), job.id());
         jdbc.update("update projects set preview_asset_id=coalesce(preview_asset_id,?),updated_at=? where id=?",
                 asset.id(), Timestamp.from(now), job.projectId());
@@ -283,7 +291,7 @@ public class CardGenerationStore {
                 result.getString("id"), result.getString("project_id"), result.getString("card_id"),
                 result.getString("status"), result.getString("failure_code"), result.getInt("attempt"),
                 result.getTimestamp("created_at").toInstant(), instant(result, "started_at"),
-                instant(result, "finished_at"));
+                instant(result, "finished_at"), result.getInt("progress"));
     }
 
     private CardView mapCard(ResultSet result, int row) throws SQLException {

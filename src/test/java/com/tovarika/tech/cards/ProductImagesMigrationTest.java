@@ -24,7 +24,8 @@ class ProductImagesMigrationTest {
             try (var liquibase = new Liquibase("db/changelog/db.changelog-master.yaml", new ClassLoaderResourceAccessor(), database)) {
                 var contexts = new Contexts();
                 var labels = new LabelExpression();
-                int previousChanges = liquibase.listUnrunChangeSets(contexts, labels).size() - 1;
+                int previousChanges = (int) liquibase.listUnrunChangeSets(contexts, labels).stream()
+                        .takeWhile(change -> !"085-product-images".equals(change.getId())).count();
                 liquibase.update(previousChanges, contexts, labels);
                 try (var sql = connection.createStatement()) {
                     sql.execute("insert into users(id,email,email_verified,status,created_at,updated_at) values('usr_old_images','images@example.test',true,'ACTIVE',now(),now())");
@@ -50,13 +51,14 @@ class ProductImagesMigrationTest {
                     assertThat(rows.getString("prompt")).isEqualTo("retry prompt");
                     assertThat(rows.getString("source_asset_id")).isEqualTo("asset_old_image");
                 }
-                try (var sql = connection.createStatement(); var rows = sql.executeQuery("select p.status,a.storage_key,a.size_bytes,j.card_count,q.status from products p join assets a on a.id=p.source_asset_id join projects j on j.product_id=p.id join project_jobs q on q.project_id=j.id where p.id='prd_old_images'")) {
+                try (var sql = connection.createStatement(); var rows = sql.executeQuery("select p.status,a.storage_key,a.size_bytes,j.card_count,q.status,q.progress from products p join assets a on a.id=p.source_asset_id join projects j on j.product_id=p.id join project_jobs q on q.project_id=j.id where p.id='prd_old_images'")) {
                     rows.next();
                     assertThat(rows.getString(1)).isEqualTo("analysis_ready");
                     assertThat(rows.getString(2)).isEqualTo("products/original-unchanged");
                     assertThat(rows.getInt(3)).isEqualTo(123);
                     assertThat(rows.getInt(4)).isEqualTo(2);
                     assertThat(rows.getString(5)).isEqualTo("failed");
+                    assertThat(rows.getInt(6)).isZero();
                 }
             }
         }

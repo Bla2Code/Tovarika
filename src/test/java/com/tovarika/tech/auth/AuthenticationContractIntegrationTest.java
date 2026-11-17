@@ -1190,7 +1190,7 @@ class AuthenticationContractIntegrationTest {
         insertTrialWorkspace(trialId);
         Instant now=Instant.now();
         var job=new com.tovarika.tech.cards.CardGenerationJob("job_conversion","prj_bootstrap","card_conversion",
-                "queued",null,0,now,null,null);
+                "queued",null,0,now,null,null,0);
         transactions.execute(status -> {
             generationStore.enqueue(job,1,null,null,"3:4","sample prompt",null,null,null,null,null,1,
                     "product description",trialId,"generation-replay",now,null);
@@ -1274,7 +1274,7 @@ class AuthenticationContractIntegrationTest {
         jdbc.update("insert into products(id,name,owner_user_id,created_at,updated_at) values('prd_existing','Existing',?,clock_timestamp(),clock_timestamp())",userId);
         jdbc.update("insert into projects(id,name,product_id,default_aspect_ratio,created_at,updated_at) values('prj_existing','Existing','prd_existing','3:4',clock_timestamp(),clock_timestamp())");
         Instant now=Instant.now();
-        var userJob=new com.tovarika.tech.cards.CardGenerationJob("job_existing","prj_existing","card_existing","queued",null,0,now,null,null);
+        var userJob=new com.tovarika.tech.cards.CardGenerationJob("job_existing","prj_existing","card_existing","queued",null,0,now,null,null,0);
         transactions.execute(status -> {
             generationStore.enqueue(userJob,1,null,null,"3:4","sample prompt",null,null,null,null,null,1,"description",userId,"generation-replay",now,null);
             return null;

@@ -171,3 +171,5 @@ databaseChangeLog:
       file: db/changelog/changes/084-hidden-universal-variants.yaml
   - include:
       file: db/changelog/changes/085-product-images.yaml
+  - include:
+      file: db/changelog/changes/086-job-progress.yaml

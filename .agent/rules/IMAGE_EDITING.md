@@ -31,6 +31,10 @@
   каждые 30 секунд (не более 20 минут renewal), максимум 3 попытки recovery и возраст <24 часов.
   Commit проверяет base/revision/lastImageJobId, устаревший результат не публикуется. Не добавляй Project
   lock из update project_jobs: это нарушит существующий порядок блокировок.
+- Миграция 086 добавляет сохранённый Job.progress: queued 0, claim 10, входное изображение
+  подготовлено 25, результат AI/CPU получен 80, объект записан 95, атомарный success 100.
+  Условные веса не оценивают время модели. updateProgress монотонен и fenced по
+  processing/attempt; terminal/stale attempt его не меняют. Failed не публикует процент.
 - `CardImageProcessor` строит alpha mask по normalized rectangle floor/ceil и копирует
   только выделенные RGBA pixels из AI-result. Маска провайдера — guidance, не гарантия.
 - erase принимает mask.kind=brush: 1–64 штриха, radius .002–.25 относительно меньшей

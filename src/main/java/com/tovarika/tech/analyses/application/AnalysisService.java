@@ -32,7 +32,7 @@ public class AnalysisService {
         if (product.status().equals("analysis_pending")) throw new ApiFailure(409,"ANALYSIS_ALREADY_RUNNING","Analysis is already running");
         String scope=userId==null?trialId:userId;
         limiter.check(AuthenticationRateLimiter.Scope.PRODUCT_ANALYSIS,scope,new Rule(30,Duration.ofHours(1)));
-        var job=new AnalysisJob(id("job_"),productId,id("anl_"),"queued",0,clock.instant(),null,null);
+        var job=new AnalysisJob(id("job_"),productId,id("anl_"),"queued",0,clock.instant(),null,null,0);
         store.enqueue(job,scope,key);
         return job;
     }

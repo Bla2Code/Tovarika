@@ -101,7 +101,7 @@ public class CardGenerationService {
             compiledPrompt = prompts.fromUserPrompt(project.description(), userPrompt);
         }
         var now = clock.instant();
-        var job = new CardGenerationJob(id("job_"), projectId, id("card_"), "queued", null, 0, now, null, null);
+        var job = new CardGenerationJob(id("job_"), projectId, id("card_"), "queued", null, 0, now, null, null, 0);
         String operationId=billing.admit(userId,trialId,idempotencyKey,digest,
                 com.tovarika.tech.billing.domain.Billing.Code.image_generation,null,job.id());
         store.enqueue(job, position, hasTemplate ? templateId : null, reference, aspectRatio, compiledPrompt,
@@ -150,7 +150,7 @@ public class CardGenerationService {
             throw new ApiFailure(409, "CARD_RETRY_NOT_ALLOWED", "Only failed cards can be retried");
         }
         var now = clock.instant();
-        var job = new CardGenerationJob(id("job_"), projectId, cardId, "queued", null, 0, now, null, null);
+        var job = new CardGenerationJob(id("job_"), projectId, cardId, "queued", null, 0, now, null, null, 0);
         String operationId=billing.admit(userId,trialId,key,digest,
                 com.tovarika.tech.billing.domain.Billing.Code.image_entire_edit,cardId,job.id());
         store.retry(job, scope, key, now);

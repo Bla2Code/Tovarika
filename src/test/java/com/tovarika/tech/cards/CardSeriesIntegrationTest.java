@@ -74,6 +74,61 @@ class CardSeriesIntegrationTest {
         jdbc.update("delete from templates where id='tpl_series_other'");
     }
 
+    @Test void workerPublishesResultProgressBeforeStorageFinishes() throws Exception {
+        var job=start(1,"progress-upload");
+        var writing=new CountDownLatch(1);
+        var release=new CountDownLatch(1);
+        storage.beforeCardWrite=()->{
+            writing.countDown();
+            try {
+                if(!release.await(10,TimeUnit.SECONDS)) throw new IllegalStateException("Test upload timed out");
+            } catch(InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+        };
+        try(var executor=Executors.newSingleThreadExecutor()) {
+            var running=executor.submit(worker::runOnce);
+            try {
+                assertThat(writing.await(10,TimeUnit.SECONDS)).isTrue();
+                for(int read=0;read<2;read++) {
+                    mvc.perform(get("/api/v1/jobs/"+job.id()).header("Authorization","Bearer "+token))
+                            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("processing"))
+                            .andExpect(jsonPath("$.progress").value(80));
+                }
+                assertThat(cards.getCard("prj_series",job.cardId(),"usr_series",null).image()).isNull();
+            } finally { release.countDown(); }
+            assertThat(running.get(10,TimeUnit.SECONDS)).isTrue();
+        } finally { storage.beforeCardWrite=null; }
+        mvc.perform(get("/api/v1/jobs/"+job.id()).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("completed"))
+                .andExpect(jsonPath("$.progress").value(100));
+        assertThat(cards.getCard("prj_series",job.cardId(),"usr_series",null).image()).isNotNull();
+    }
+
+    @Test void generationProgressIsMonotoneAndFencedAcrossRecovery() throws Exception {
+        var job=start(1,"progress-fence");
+        var first=transactions.execute(tx->store.claim(Instant.now(),Instant.now().minusSeconds(1))).orElseThrow();
+        store.updateProgress(first,80);
+        store.updateProgress(first,25);
+        var current=transactions.execute(tx->store.claim(Instant.now(),Instant.now().plusSeconds(60))).orElseThrow();
+        store.updateProgress(first,95);
+        store.updateProgress(current,25);
+        mvc.perform(get("/api/v1/jobs/"+job.id()).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.progress").value(80));
+        store.updateProgress(current,95);
+        mvc.perform(get("/api/v1/jobs/"+job.id()).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("processing"))
+                .andExpect(jsonPath("$.progress").value(95));
+        transactions.executeWithoutResult(tx->store.complete(current,
+                new CardGenerationStore.GeneratedAsset("asset_progress","cards/progress","image/png",100,10,10),Instant.now()));
+        store.updateProgress(current,25);
+        assertThat(cards.getJob(job.id(),"usr_series",null).progress()).isEqualTo(100);
+        var next=start(2,"progress-next-card");
+        mvc.perform(get("/api/v1/jobs/"+next.id()).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.progress").value(0));
+    }
+
     @Test void automaticDraftUsesCurrentAnalysisAndRemainsHiddenFromCatalogAndFavorites() throws Exception {
         jdbc.update("update projects set selected_template_id=null where id='prj_series'");
         jdbc.update("update product_analyses set idea='Товар на тёплом песочном фоне',revision=2 where product_id='prd_series'");

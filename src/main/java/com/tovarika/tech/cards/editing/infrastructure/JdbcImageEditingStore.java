@@ -4,6 +4,7 @@ import com.tovarika.tech.cards.CardGenerationStore;
 import com.tovarika.tech.cards.editing.application.ImageEditingStore;
 import com.tovarika.tech.cards.editing.domain.ImageEditJob;
 import com.tovarika.tech.shared.application.ApiFailure;
+import com.tovarika.tech.shared.application.JobProgress;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -110,6 +111,13 @@ public class JdbcImageEditingStore implements ImageEditingStore {
         return billing.claim(false,now,now.plus(com.tovarika.tech.billing.recovery.AiJobRecovery.LEASE))
                 .flatMap(id->jdbc.query("select * from project_jobs where id=?",this::map,id).stream().findFirst());
     }
+    public void updateProgress(ImageEditJob job, int progress) {
+        JobProgress.requireIntermediate(progress);
+        jdbc.update("""
+                update project_jobs set progress=greatest(progress,?)
+                where id=? and status='processing' and attempt=?
+                """, progress, job.id(), job.attempt());
+    }
     public Source source(ImageEditJob job) {
         return jdbc.queryForObject("""
                 select a.storage_key,a.media_type,v.aspect_ratio from card_image_versions v
@@ -154,7 +162,7 @@ public class JdbcImageEditingStore implements ImageEditingStore {
                     status='ready',error_code=null,updated_at=? where id=?
                 """,versionId,output.id(),revision,ratio,Timestamp.from(now),job.cardId());
         jdbc.update("""
-                update project_jobs set status='completed',result_version_id=?,result_asset_id=?,result_image_revision=?,
+                update project_jobs set status='completed',progress=100,result_version_id=?,result_asset_id=?,result_image_revision=?,
                     finished_at=?,updated_at=?,lease_until=null where id=?
                 """,versionId,output.id(),revision,Timestamp.from(now),Timestamp.from(now),job.id());
         billing.finish(job.id(),true,aiCalled);
@@ -176,7 +184,7 @@ public class JdbcImageEditingStore implements ImageEditingStore {
                 r.getString("status"),r.getString("failure_code"),r.getInt("attempt"),r.getString("base_version_id"),
                 r.getLong("expected_image_revision"),r.getString("image_edit_payload"),r.getString("result_version_id"),
                 r.getString("result_asset_id"),(Long)r.getObject("result_image_revision"),instant(r,"created_at"),
-                instant(r,"started_at"),instant(r,"finished_at"));
+                instant(r,"started_at"),instant(r,"finished_at"),r.getInt("progress"));
     }
     private Instant instant(ResultSet r,String key) throws SQLException { var t=r.getTimestamp(key);return t==null?null:t.toInstant(); }
 }

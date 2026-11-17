@@ -75,7 +75,8 @@ class AnalysisJobsIntegrationTest {
             var running=executor.submit(worker::runOnce);
             assertThat(provider.entered.await(10,TimeUnit.SECONDS)).isTrue();
             mvc.perform(get("/api/v1/jobs/"+job).cookie(cookie)).andExpect(status().isOk())
-                    .andExpect(jsonPath("$.status").value("processing")).andExpect(jsonPath("$.startedAt").isNotEmpty());
+                    .andExpect(jsonPath("$.status").value("processing")).andExpect(jsonPath("$.progress").value(25))
+                    .andExpect(jsonPath("$.startedAt").isNotEmpty());
             assertThat(start(product,"operation-1")).isEqualTo(job);
             assertThat(provider.calls.get()).isEqualTo(1);
             provider.release.countDown();
@@ -89,6 +90,30 @@ class AnalysisJobsIntegrationTest {
         assertThat(jdbc.queryForObject("select revision from product_analyses",Integer.class)).isEqualTo(1);
         assertThat(metrics.get("tovarika.analysis.operations").tag("outcome","completed").counter().count()).isGreaterThanOrEqualTo(1);
     }
+    @Test void progressSurvivesRecoveryAndRejectsStaleAndTerminalUpdates() throws Exception {
+        String product=product(), id=start(product,"progress-recovery");
+        var first=transactions.execute(tx->store.claim(Instant.now(),Instant.now().minusSeconds(1))).orElseThrow();
+        store.updateProgress(first,80);
+        store.updateProgress(first,25);
+        mvc.perform(get("/api/v1/jobs/"+id).cookie(cookie)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.progress").value(80));
+        var current=transactions.execute(tx->store.claim(Instant.now(),Instant.now().plusSeconds(60))).orElseThrow();
+        store.updateProgress(first,95);
+        assertThat(jdbc.queryForObject("select progress from analysis_jobs where id=?",Integer.class,id)).isEqualTo(80);
+        store.updateProgress(current,25);
+        mvc.perform(get("/api/v1/jobs/"+id).cookie(cookie)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.progress").value(80));
+        assertThatThrownBy(()->store.updateProgress(current,100)).hasRootCauseInstanceOf(IllegalArgumentException.class);
+        transactions.executeWithoutResult(tx->store.fail(current,Instant.now()));
+        store.updateProgress(current,95);
+        mvc.perform(get("/api/v1/jobs/"+id).cookie(cookie)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("failed")).andExpect(jsonPath("$.progress").doesNotExist());
+        assertThat(jdbc.queryForObject("select progress from analysis_jobs where id=?",Integer.class,id)).isEqualTo(80);
+        String next=start(product,"progress-new-job");
+        mvc.perform(get("/api/v1/jobs/"+next).cookie(cookie)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.progress").value(0));
+    }
+
     @Test void providerFailureIsSanitizedAndTerminal() throws Exception {
         String product=product();String job=start(product,"failure-key");provider.fail=true;
         worker.runOnce();

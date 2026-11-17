@@ -76,8 +76,13 @@ AI transport и размеры — [IMAGE_GENERATION.md](IMAGE_GENERATION.md),
 - Устаревший attempt не меняет результат/finance. При неизвестном commit outcome сначала
   разрешается fenced failure, затем object удаляется только после проверки отсутствия ссылки
   в assets; при недоступной БД cleanup откладывается. Сохраняется только публичный код ошибки.
-- Job progress: queued 0, processing 10, completed 100; это не реальный процент AI-работы.
-  Job/Card GET используют Cache-Control: no-store; URL результата создаётся через AssetLinks.
+- Job progress хранится в БД (миграция 086): queued 0, claim 10, входные данные готовы 25,
+  результат AI получен 80, объект записан в storage 95, completed 100. Это условные веса
+  завершённых этапов, не процент времени или вычислений модели. В ожидании AI процент
+  остаётся на 25; короткие этапы polling может пропустить. updateProgress монотонен,
+  fenced по processing/attempt; recovery не уменьшает значение. Failed не публикует progress.
+  100 фиксируется атомарно с успешным результатом. Job/Card GET используют
+  Cache-Control: no-store; URL результата создаётся через AssetLinks.
 - Метрики: `tovarika.card.generation.latency`/`tovarika.card.generation.operations`,
   только outcome (completed, failed, stale). Prompt, фото и provider body не логируются.
 

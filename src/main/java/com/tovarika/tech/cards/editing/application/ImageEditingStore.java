@@ -23,6 +23,7 @@ public interface ImageEditingStore {
     void redo(String projectId, String cardId, String scope, String key, String digest, Current current, Instant now);
     Optional<ImageEditJob> findJob(String id, String userId, String trialId);
     Optional<ImageEditJob> claim(Instant now);
+    void updateProgress(ImageEditJob job, int progress);
     Source source(ImageEditJob job);
     boolean complete(ImageEditJob job, Output output, Instant now);
     boolean complete(ImageEditJob job, Output output, Instant now, boolean aiCalled);

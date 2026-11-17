@@ -15,7 +15,10 @@ class CardSeriesStorageConfiguration {
         final Map<String,byte[]> data=new ConcurrentHashMap<>();
         boolean failReads;
         boolean failWrites;
-        public void put(String key,byte[] bytes,String mediaType) { if(failWrites) throw new IllegalStateException("Test storage write unavailable");data.put(key,bytes.clone()); }
+        volatile Runnable beforeCardWrite;
+        public void put(String key,byte[] bytes,String mediaType) {
+            if(key.startsWith("cards/") && beforeCardWrite!=null) beforeCardWrite.run();
+            if(failWrites) throw new IllegalStateException("Test storage write unavailable");data.put(key,bytes.clone()); }
         public byte[] read(String key) {
             if(failReads) throw new IllegalStateException("Test storage unavailable");
             return data.getOrDefault(key,TemplatePlaceholder.png()).clone();
