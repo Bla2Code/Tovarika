@@ -179,6 +179,59 @@ class ProductUploadIntegrationTest {
         for (int i=0;i<30;i++) expectUpload(cookie, new byte[]{1}, "image/png", 415, "UNSUPPORTED_FORMAT");
         expectUpload(cookie, fixture("png"), "image/png", 429, "RATE_LIMITED");
     }
+    @Test void additionalImagesPersistWithoutReplacingTheProductOrStartingAnalysis() throws Exception {
+        Cookie cookie=trial();
+        String productId=upload(cookie);
+        String primary=jdbc.queryForObject("select source_asset_id from products where id=?",String.class,productId);
+        jdbc.update("update products set status='analysis_ready' where id=?",productId);
+        var added=mvc.perform(multipart("/api/v1/products/"+productId+"/images").file(image())
+                        .cookie(cookie).header("Origin","https://ui.test"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.purpose").value("source_image"))
+                .andExpect(jsonPath("$.width").value(4)).andReturn().getResponse();
+        var asset=json.readTree(added.getContentAsString());
+        mvc.perform(get("/api/v1/products/"+productId+"/images").cookie(cookie))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control","no-store"))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].id").value(primary))
+                .andExpect(jsonPath("$.items[1].id").value(asset.get("id").asString()));
+        mvc.perform(get(URI.create(asset.get("url").asString())))
+                .andExpect(status().isOk()).andExpect(content().bytes(fixture("png")));
+        mvc.perform(get("/api/v1/products/"+productId).cookie(cookie))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.sourceImage.id").value(primary))
+                .andExpect(jsonPath("$.status").value("analysis_ready"));
+        assertThat(jdbc.queryForObject("select count(*) from products",Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from analysis_jobs",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from project_jobs",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from product_uploads",Integer.class)).isZero();
+    }
+    @Test void additionalImagesEnforceOwnershipValidationAndCompensateFailedWrites() throws Exception {
+        Cookie cookie=trial();
+        String productId=upload(cookie);
+        Cookie other=trial();
+        String path="/api/v1/products/"+productId+"/images";
+        mvc.perform(get(path).cookie(other)).andExpect(status().isNotFound());
+        mvc.perform(multipart(path).file(image()).cookie(other).header("Origin","https://ui.test"))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
+        mvc.perform(get(path).cookie(cookie).header("Authorization","Bearer "+bearer("image-other@test.example")))
+                .andExpect(status().isNotFound());
+        mvc.perform(multipart(path).file(image()).cookie(cookie)).andExpect(status().isForbidden());
+        mvc.perform(multipart(path).cookie(cookie).header("Origin","https://ui.test"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(multipart(path).file(new MockMultipartFile("image","x.png","image/png",new byte[]{1,2,3}))
+                        .cookie(cookie).header("Origin","https://ui.test"))
+                .andExpect(status().isUnsupportedMediaType());
+        mvc.perform(multipart(path).file(new MockMultipartFile("image","x.png","image/png",new byte[10485761]))
+                        .cookie(cookie).header("Origin","https://ui.test"))
+                .andExpect(status().isPayloadTooLarge());
+        storage.failPut=true;
+        mvc.perform(multipart(path).file(image()).cookie(cookie).header("Origin","https://ui.test"))
+                .andExpect(status().isInternalServerError());
+        assertThat(jdbc.queryForObject("select count(*) from assets",Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from product_images",Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from product_uploads",Integer.class)).isZero();
+        assertThat(storage.data).hasSize(1);
+    }
     private String bearer(String email) {
         auth.register(email, "correct horse battery staple", null, null);
         return auth.login(email, "correct horse battery staple", new RequestMetadata("Test", "127.0.0.xxx")).accessToken();

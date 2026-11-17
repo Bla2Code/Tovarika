@@ -37,11 +37,29 @@ public class ProductsController implements ProductsApi {
         var owner = identities.resolve();
         return ResponseEntity.ok().header("Cache-Control", "no-store").body(dto(products.get(id, owner.userId(), owner.trialSessionId())));
     }
+    @Override
+    public ResponseEntity<ProductImageCollectionDto> listProductImages(String productId) {
+        var owner = identities.resolve();
+        var items = products.images(productId, owner.userId(), owner.trialSessionId()).stream().map(this::assetDto).toList();
+        return ResponseEntity.ok().header("Cache-Control", "no-store").body(new ProductImageCollectionDto(items));
+    }
+    @Override
+    public ResponseEntity<AssetDto> addProductImage(String productId, MultipartFile image) {
+        var owner = identities.resolve();
+        if (image.getSize() > ImageValidator.MAX_BYTES) throw new ApiFailure(413, "FILE_TOO_LARGE", "Image exceeds 10 MiB");
+        try (var input = image.getInputStream()) {
+            var asset = products.addImage(productId, owner.userId(), owner.trialSessionId(),
+                    request.rateLimitSubject("products"), input.readNBytes(ImageValidator.MAX_BYTES + 1));
+            return ResponseEntity.status(201).header("Cache-Control", "no-store").body(assetDto(asset));
+        } catch (IOException failure) { throw new ApiFailure(400, "UPLOAD_VALIDATION_ERROR", "Cannot read upload"); }
+    }
     private ProductDto dto(ProductView p) {
-        var a=p.asset(); var link=links.create(a.id());
-        var asset = new AssetDto(a.id(), AssetPurposeDto.SOURCE_IMAGE, a.mediaType(), a.size(), URI.create(link.url()),
-                a.createdAt().atOffset(ZoneOffset.UTC)).width(a.width()).height(a.height()).expiresAt(link.expiresAt().atOffset(ZoneOffset.UTC));
-        return new ProductDto(p.id(), p.name(), asset, ProductStatusDto.fromValue(p.status()),
+        return new ProductDto(p.id(), p.name(), assetDto(p.asset()), ProductStatusDto.fromValue(p.status()),
                 p.createdAt().atOffset(ZoneOffset.UTC), p.updatedAt().atOffset(ZoneOffset.UTC)).analysisJobId(p.analysisJobId());
+    }
+    private AssetDto assetDto(ProductView.Asset a) {
+        var link = links.create(a.id());
+        return new AssetDto(a.id(), AssetPurposeDto.SOURCE_IMAGE, a.mediaType(), a.size(), URI.create(link.url()),
+                a.createdAt().atOffset(ZoneOffset.UTC)).width(a.width()).height(a.height()).expiresAt(link.expiresAt().atOffset(ZoneOffset.UTC));
     }
 }

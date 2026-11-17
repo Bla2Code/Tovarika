@@ -87,6 +87,8 @@ public class SecurityConfiguration {
                 .requestMatchers(HttpMethod.GET, "/media/assets/*/download", "/api/v1/exports/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/projects/*/exports").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/products").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/products/*/images").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/products/*/images").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/products/*", "/media/assets/*", "/media/template-placeholder.png").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/projects").permitAll()

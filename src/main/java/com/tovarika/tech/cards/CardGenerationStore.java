@@ -75,6 +75,17 @@ public class CardGenerationStore {
                 """, Boolean.class, projectId));
     }
 
+    public String sourceAsset(String productId, String requestedId) {
+        return jdbc.queryForList("""
+                select a.id from products p join assets a on a.id=coalesce(?,p.source_asset_id)
+                where p.id=? and a.purpose='source_image' and a.storage_key is not null
+                  and (a.id=p.source_asset_id or exists (
+                      select 1 from product_images i where i.product_id=p.id and i.asset_id=a.id))
+                """, String.class, requestedId, productId).stream().findFirst()
+                .orElseThrow(() -> new com.tovarika.tech.shared.application.ApiFailure(
+                        422, "VALIDATION_ERROR", "Source image does not belong to this product"));
+    }
+
     public Optional<CardGenerationJob> previous(String ownerScope, String key, String projectId, String cardId) {
         // Keep original namespaces; conversion adds lookup aliases without rewriting accepted jobs.
         var candidates = jdbc.query("""
@@ -111,15 +122,15 @@ public class CardGenerationStore {
     public void enqueue(CardGenerationJob job, int position, String templateId, String referenceAssetId,
             String ratio, String prompt, String recipeJson, String variantId, String variantJson, String idea,
             String seriesJson, int analysisRevision, String description, String ownerScope,
-            String idempotencyKey, Instant now) {
+            String idempotencyKey, Instant now, String sourceAssetId) {
         jdbc.update("""
                 insert into cards(id,project_id,position,status,aspect_ratio,template_id,prompt,idea,
                                   recipe_snapshot,reference_asset_snapshot_id,analysis_revision,
-                                  variant_id,variant_snapshot,analysis_description_snapshot,created_at,updated_at)
-                values(?, ?, ?, 'generating', ?, ?, ?, ?, cast(? as jsonb), ?, ?, ?, cast(? as jsonb), ?, ?, ?)
+                                  variant_id,variant_snapshot,analysis_description_snapshot,created_at,updated_at,source_asset_id)
+                values(?, ?, ?, 'generating', ?, ?, ?, ?, cast(? as jsonb), ?, ?, ?, cast(? as jsonb), ?, ?, ?, ?)
                 """, job.cardId(), job.projectId(), position, ratio, templateId, prompt, idea, recipeJson,
                 referenceAssetId, analysisRevision, variantId, variantJson, description,
-                Timestamp.from(now), Timestamp.from(now));
+                Timestamp.from(now), Timestamp.from(now), sourceAssetId);
         enqueueJob(job, ownerScope, idempotencyKey, now);
         jdbc.update("""
                 update projects set card_count=card_count+1, selected_template_id=coalesce(?,selected_template_id),
@@ -167,7 +178,7 @@ public class CardGenerationStore {
                        source.storage_key source_storage_key,source.media_type source_media_type,
                        reference.storage_key reference_storage_key,reference.media_type reference_media_type
                 from cards c join projects j on j.id=c.project_id join products p on p.id=j.product_id
-                join assets source on source.id=p.source_asset_id
+                join assets source on source.id=c.source_asset_id
                 left join assets reference on reference.id=c.reference_asset_snapshot_id
                 where c.id=? and c.project_id=?
                 """, (result, row) -> new GenerationSource(
@@ -287,7 +298,7 @@ public class CardGenerationStore {
                 result.getString("error_code"), result.getString("variant_id"), result.getString("idea"), image, result.getTimestamp("created_at").toInstant(),
                 result.getTimestamp("updated_at").toInstant(), result.getString("current_version_id"),
                 result.getString("previous_version_id"),result.getLong("image_revision"),result.getString("last_image_job_id"),
-                result.getBoolean("can_undo"),result.getBoolean("can_redo"));
+                result.getBoolean("can_undo"),result.getBoolean("can_redo"),result.getString("source_asset_id"));
     }
 
     private Instant instant(ResultSet result, String field) throws SQLException {

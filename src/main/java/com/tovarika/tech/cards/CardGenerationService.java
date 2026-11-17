@@ -36,7 +36,16 @@ public class CardGenerationService {
     @Transactional
     public CardGenerationJob start(String projectId, String idempotencyKey, String userId, String trialId,
             String templateId, String userPrompt, String aspectRatio, String variantId, String idea) {
+        return start(projectId, idempotencyKey, userId, trialId, templateId, userPrompt, aspectRatio, variantId, idea, null);
+    }
+
+    @Transactional
+    public CardGenerationJob start(String projectId, String idempotencyKey, String userId, String trialId,
+            String templateId, String userPrompt, String aspectRatio, String variantId, String idea, String sourceAssetId) {
         validateKey(idempotencyKey);
+        if (sourceAssetId != null && !sourceAssetId.matches("^asset_[A-Za-z0-9_]+$")) {
+            throw new ApiFailure(422, "VALIDATION_ERROR", "Invalid source asset ID");
+        }
         boolean hasTemplate = templateId != null && !templateId.isBlank();
         boolean hasPrompt = userPrompt != null && !userPrompt.isBlank();
         if (hasTemplate == hasPrompt || (hasTemplate && userPrompt != null)
@@ -51,7 +60,10 @@ public class CardGenerationService {
         }
         store.lockOwner(userId, trialId);
         store.requireOwnedProject(projectId,userId,trialId);
-        String digest=billing.digest("create",projectId,templateId,userPrompt,aspectRatio,variantId,idea);
+        // Preserve accepted legacy commands byte-for-byte when the optional field is omitted.
+        String digest = sourceAssetId == null
+                ? billing.digest("create",projectId,templateId,userPrompt,aspectRatio,variantId,idea)
+                : billing.digest("create",projectId,templateId,userPrompt,aspectRatio,variantId,idea,sourceAssetId);
         String ownerScope = userId == null ? trialId : userId;
         var previous = replay(projectId, null, ownerScope, idempotencyKey);
         if (previous != null) { billing.verifyReplay(previous.id(),digest); return previous; }
@@ -62,6 +74,7 @@ public class CardGenerationService {
             throw new ApiFailure(409, "CARD_LIMIT_EXCEEDED", "The project already has 10 cards");
         }
         requireAnalysis(project);
+        String selectedSource = store.sourceAsset(project.productId(), sourceAssetId);
         int position = project.cardCount() + 1;
         CardSeries series = hasTemplate ? series(project, templateId) : null;
         JsonNode variant = null;
@@ -94,7 +107,7 @@ public class CardGenerationService {
         store.enqueue(job, position, hasTemplate ? templateId : null, reference, aspectRatio, compiledPrompt,
                 recipe, variant == null ? null : variant.path("id").asText(), variant == null ? null : variant.toString(),
                 finalIdea, series == null ? null : series.json(), project.analysisRevision(), project.description(),
-                ownerScope, idempotencyKey, now);
+                ownerScope, idempotencyKey, now, selectedSource);
         store.command(job.id(),digest);
         billing.bind(job.id(),operationId);
         return job;

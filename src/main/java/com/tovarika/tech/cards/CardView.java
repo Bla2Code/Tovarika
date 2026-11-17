@@ -20,4 +20,5 @@ public record CardView(
         long imageRevision,
         String lastImageJobId,
         boolean canUndo,
-        boolean canRedo) {}
+        boolean canRedo,
+        String sourceAssetId) {}

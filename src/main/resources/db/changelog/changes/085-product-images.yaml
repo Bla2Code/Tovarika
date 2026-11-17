@@ -1,0 +1,25 @@
+databaseChangeLog:
+  - changeSet:
+      id: 085-product-images
+      author: codex
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE TABLE product_images (
+                  product_id varchar(40) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                  asset_id varchar(40) NOT NULL REFERENCES assets(id),
+                  created_at timestamptz NOT NULL,
+                  PRIMARY KEY (product_id, asset_id)
+              );
+              CREATE INDEX ix_product_images_asset ON product_images(asset_id);
+
+              INSERT INTO product_images(product_id, asset_id, created_at)
+                  SELECT p.id, p.source_asset_id, a.created_at
+                  FROM products p JOIN assets a ON a.id = p.source_asset_id;
+
+              ALTER TABLE cards ADD COLUMN source_asset_id varchar(40) REFERENCES assets(id);
+              UPDATE cards c SET source_asset_id = p.source_asset_id
+                  FROM projects j JOIN products p ON p.id = j.product_id
+                  WHERE c.project_id = j.id;
+              CREATE INDEX ix_cards_source_asset ON cards(source_asset_id);

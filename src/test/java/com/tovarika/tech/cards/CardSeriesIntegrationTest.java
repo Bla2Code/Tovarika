@@ -309,6 +309,52 @@ class CardSeriesIntegrationTest {
         assertThat(count()).isEqualTo(2);
     }
 
+    @Test void selectedImageIsAcceptedByApiAndFrozenForWorkerReplayAndRetry() throws Exception {
+        jdbc.update("insert into assets(id,purpose,media_type,size_bytes,url,storage_key,created_at) values('asset_back','source_image','image/png',100,'','products/back-view',now())");
+        jdbc.update("insert into product_images(product_id,asset_id,created_at) values('prd_series','asset_back',now())");
+        String body="{\"sourceAssetId\":\"asset_back\",\"templateId\":\"tpl_fashion_hero\",\"variantId\":\"tpl_fashion_hero_v01\",\"aspectRatio\":\"3:4\",\"idea\":\"Показать обратную сторону\"}";
+        var response=mvc.perform(post(path).header("Authorization","Bearer "+token)
+                        .header("Idempotency-Key","selected-image-key").contentType("application/json").content(body))
+                .andExpect(status().isAccepted()).andReturn().getResponse();
+        String jobId=mapper.readTree(response.getContentAsString()).get("jobId").asString();
+        var job=cards.getJob(jobId,"usr_series",null);
+        mvc.perform(get(path+"/"+job.cardId()).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.sourceAssetId").value("asset_back"));
+        assertThat(jdbc.queryForObject("select source_asset_id from products where id='prd_series'",String.class)).isEqualTo("asset_source");
+        assertThat(store.source(job).sourceStorageKey()).isEqualTo("products/back-view");
+        mvc.perform(post(path).header("Authorization","Bearer "+token).header("Idempotency-Key","selected-image-key")
+                        .contentType("application/json").content(body))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.jobId").value(jobId));
+        mvc.perform(post(path).header("Authorization","Bearer "+token).header("Idempotency-Key","selected-image-key")
+                        .contentType("application/json").content(body.replace("asset_back","asset_source")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
+        storage.failReads=true;
+        assertThat(worker.runOnce()).isTrue();
+        assertThat(cards.getCard("prj_series",job.cardId(),"usr_series",null).status()).isEqualTo("error");
+        // Even a later change to the product default cannot change a saved Card input.
+        jdbc.update("update products set source_asset_id='asset_back' where id='prd_series'");
+        var retry=cards.retry("prj_series",job.cardId(),"selected-image-retry","usr_series",null);
+        assertThat(store.source(retry).sourceStorageKey()).isEqualTo("products/back-view");
+        storage.failReads=false;
+        assertThat(worker.runOnce()).isTrue();
+        assertThat(cards.getCard("prj_series",job.cardId(),"usr_series",null).sourceAssetId()).isEqualTo("asset_back");
+        assertThat(count()).isEqualTo(1);
+    }
+
+    @Test void defaultImageIsFrozenAndForeignOrGeneratedAssetsCannotBeSelected() {
+        jdbc.update("insert into assets(id,purpose,media_type,size_bytes,url,storage_key,created_at) values('asset_unlinked','source_image','image/png',100,'','products/unlinked',now())");
+        assertCode(() -> cards.start("prj_series","unlinked-image-key","usr_series",null,
+                "tpl_fashion_hero",null,"3:4",null,null,"asset_unlinked"),"VALIDATION_ERROR");
+        assertCode(() -> cards.start("prj_series","template-as-source","usr_series",null,
+                "tpl_fashion_hero",null,"3:4",null,null,"asset_tpl_fashion_hero_ref_v3"),"VALIDATION_ERROR");
+        assertThat(count()).isZero();
+        var job=start(1,"legacy-source-key");
+        assertThat(cards.getCard("prj_series",job.cardId(),"usr_series",null).sourceAssetId()).isEqualTo("asset_source");
+        jdbc.update("update products set source_asset_id='asset_unlinked' where id='prd_series'");
+        assertThat(store.source(job).sourceStorageKey()).isEqualTo("products/test-source");
+        assertThat(start(1,"legacy-source-key").id()).isEqualTo(job.id());
+    }
+
     private String race(CountDownLatch latch,String key) throws Exception {
         latch.await();try{return start(1,key).status();}catch(ApiFailure failure){return failure.code();}
     }

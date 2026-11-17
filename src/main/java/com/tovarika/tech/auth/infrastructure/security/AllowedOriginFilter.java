@@ -43,7 +43,7 @@ public class AllowedOriginFilter extends OncePerRequestFilter {
                 && !hasBearer(request) && hasTrialCookie(request);
         boolean productMutation = (HttpMethod.POST.matches(request.getMethod())
                 && (request.getRequestURI().equals("/api/v1/products")
-                    || request.getRequestURI().matches("/api/v1/products/[^/]+/analysis"))
+                    || request.getRequestURI().matches("/api/v1/products/[^/]+/(analysis|images)"))
                 || HttpMethod.PATCH.matches(request.getMethod())
                     && request.getRequestURI().matches("/api/v1/products/[^/]+/analysis"))
                 && !hasBearer(request) && hasTrialCookie(request);
