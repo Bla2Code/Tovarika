@@ -1193,7 +1193,7 @@ class AuthenticationContractIntegrationTest {
                 "queued",null,0,now,null,null);
         transactions.execute(status -> {
             generationStore.enqueue(job,1,null,null,"3:4","sample prompt",null,null,null,null,null,1,
-                    "product description",trialId,"generation-replay",now);
+                    "product description",trialId,"generation-replay",now,null);
             return null;
         });
         return transactions.execute(status -> generationStore.claim(now,now.plusSeconds(300)).orElseThrow());
@@ -1276,7 +1276,7 @@ class AuthenticationContractIntegrationTest {
         Instant now=Instant.now();
         var userJob=new com.tovarika.tech.cards.CardGenerationJob("job_existing","prj_existing","card_existing","queued",null,0,now,null,null);
         transactions.execute(status -> {
-            generationStore.enqueue(userJob,1,null,null,"3:4","sample prompt",null,null,null,null,null,1,"description",userId,"generation-replay",now);
+            generationStore.enqueue(userJob,1,null,null,"3:4","sample prompt",null,null,null,null,null,1,"description",userId,"generation-replay",now,null);
             return null;
         });
         jdbc.update("update project_jobs set status='processing',attempt=1,lease_until=clock_timestamp()+interval '5 minutes' where id=?",userJob.id());

@@ -300,7 +300,7 @@ class CardBillingOperationsIntegrationTest {
         fund(600);
         var now=Instant.now();
         var legacy=new CardGenerationJob("job_legacy_billing","prj_billing1","card_legacy_billing","queued",null,0,now,null,null);
-        tx.executeWithoutResult(t->generations.enqueue(legacy,1,null,null,"1:1","Generate mug",null,null,null,null,null,1,"Mug",owner.id(),"legacy-generate-key",now));
+        tx.executeWithoutResult(t->generations.enqueue(legacy,1,null,null,"1:1","Generate mug",null,null,null,null,null,1,"Mug",owner.id(),"legacy-generate-key",now,"asset_billing_source_1"));
         assertThat(jobs.snapshot(legacy.id())).isNull();assertThat(worker.runOnce()).isTrue();
         var c=card(legacy.cardId());
         tx.executeWithoutResult(t->editStore.enqueue("job_legacy_edit",c.projectId(),c.id(),"card_image_edit",owner.id(),"legacy-edit-key","a".repeat(64),

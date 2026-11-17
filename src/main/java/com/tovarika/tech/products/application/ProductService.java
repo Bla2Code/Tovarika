@@ -50,6 +50,32 @@ public class ProductService {
         return store.findOwned(id, userId, trialId)
                 .orElseThrow(() -> new ApiFailure(404, "PRODUCT_NOT_FOUND", "Product not found"));
     }
+    public java.util.List<ProductView.Asset> images(String productId, String userId, String trialId) {
+        get(productId, userId, trialId);
+        return store.images(productId, userId, trialId);
+    }
+    public ProductView.Asset addImage(String productId, String userId, String trialId, String subject, byte[] original) {
+        get(productId, userId, trialId);
+        limiter.check(AuthenticationRateLimiter.Scope.PRODUCT_UPLOAD, subject, new Rule(30, Duration.ofHours(1)));
+        var info = images.validate(original);
+        String key = "products/" + UUID.randomUUID();
+        var asset = new ProductView.Asset(id("asset_"), info.mediaType(), original.length,
+                info.width(), info.height(), key, clock.instant());
+        transactions.executeWithoutResult(tx -> store.reserve(key, asset.createdAt()));
+        try {
+            transactions.executeWithoutResult(tx -> {
+                store.lockOwned(productId, userId, trialId);
+                store.lockReservation(key);
+                storage.put(key, original, info.mediaType());
+                store.addImage(productId, asset);
+                store.release(key);
+            });
+        } catch (RuntimeException failure) {
+            cleanup(key);
+            throw failure;
+        }
+        return asset;
+    }
     private void cleanup(String key) {
         try {
             transactions.executeWithoutResult(tx -> {

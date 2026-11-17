@@ -33,7 +33,7 @@ public class CardsController implements CardsApi {
         var owner = identities.requireRegistered();
         var job = cards.start(projectId, idempotencyKey, owner.userId(), owner.trialSessionId(),
                 request.getTemplateId(), request.getPrompt(), request.getAspectRatio().getValue(),
-                request.getVariantId(), request.getIdea());
+                request.getVariantId(), request.getIdea(), request.getSourceAssetId());
         return ResponseEntity.accepted().body(operation(job));
     }
 
@@ -166,6 +166,7 @@ public class CardsController implements CardsApi {
                 card.createdAt().atOffset(ZoneOffset.UTC), card.updatedAt().atOffset(ZoneOffset.UTC));
         dto.templateId(card.templateId()).variantId(card.variantId()).idea(card.idea());
         dto.canUndo(card.canUndo()).canRedo(card.canRedo()).lastImageJobId(card.lastImageJobId());
+        dto.sourceAssetId(card.sourceAssetId());
         if(card.currentVersionId()!=null) dto.currentVersion(new ImageVersionReferenceDto(card.currentVersionId())
                 .previousVersionId(card.previousVersionId())).imageRevision(card.imageRevision());
         if (card.errorCode() != null) dto.errorCode(ErrorCodeDto.fromValue(card.errorCode()));
